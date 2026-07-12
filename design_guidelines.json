@@ -1,0 +1,170 @@
+{
+  "app_name": "VYLNAX PRO",
+  "personality": "1 iOS-Native Clean",
+  "personality_one_liner": "A professional, clean, and trustworthy medical experience relying on high-contrast blues and crisp structure to ensure patient safety and caregiver confidence.",
+  "color": {
+    "surface": "#FFFFFF",
+    "onSurface": "#111827",
+    "surfaceSecondary": "#F9FAFB",
+    "onSurfaceSecondary": "#374151",
+    "surfaceTertiary": "#EEF2F6",
+    "onSurfaceTertiary": "#4B5563",
+    "surfaceInverse": "#0A1929",
+    "onSurfaceInverse": "#FFFFFF",
+    "brand": "#0B3A64",
+    "brandPrimary": "#1A65A9",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#E6F0F9",
+    "onBrandSecondary": "#0B3A64",
+    "brandTertiary": "#F0F5FA",
+    "onBrandTertiary": "#1A65A9",
+    "success": "#059669",
+    "onSuccess": "#FFFFFF",
+    "warning": "#D97706",
+    "onWarning": "#FFFFFF",
+    "error": "#DC2626",
+    "onError": "#FFFFFF",
+    "info": "#0284C7",
+    "onInfo": "#FFFFFF",
+    "border": "#E5E7EB",
+    "borderStrong": "#9CA3AF",
+    "divider": "#F3F4F6"
+  },
+  "typography": {
+    "displayFontFamily": "Plus Jakarta Sans",
+    "textFontFamily": "Geist",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous vertical rhythm. Minimal touch targets must be 48pt+ (preferably 52pt for seniors/caregivers). Generous padding around cards to avoid medical interface clutter.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "1",
+  "navigation": "bottom_tabs",
+  "icon_set": "Ionicons",
+  "glassmorphism": {
+    "enabled": "true",
+    "do's": [
+      "Use glass effect on bottom tab bar to maintain context when lists scroll behind.",
+      "Use glass on sticky headers, bottom-sheet headers, and modal scrims.",
+      "Use over tinted brandTertiary background for the floating SOS button."
+    ],
+    "dont's": [
+      "Never blur body content, form fields, or dense medical data rows.",
+      "Avoid on critical warning/error modals (use solid surface instead)."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Splash & Google Login",
+      "purpose": "Secure authentication gate showcasing the brand trust and tagline.",
+      "states": {
+        "loading": "Centered blue spinner",
+        "empty": "N/A",
+        "error": "Standard login error toast"
+      },
+      "layout": "Full-bleed abstract medical background. Gradient scrim from top (transparent) to bottom (surfaceInverse) >70% opacity. Logo (V checkmark shape) and tagline 'INTELLIGENT. SICHER. MENSCHLICH.' centered. Google login button at the bottom thumb zone."
+    },
+    {
+      "name": "Patient Dashboard",
+      "purpose": "A quick glance at today's adherence, the next medication dose, and emergency access.",
+      "states": {
+        "loading": "Skeleton UI for adherence ring and next dose card",
+        "empty": "Illustration of health and prompt to 'Add first medication'.",
+        "error": "Error loading schedule with retry button"
+      },
+      "layout": "Header: Greeting with role switcher. Hero section: Large 'Next Dose' card displaying time and medication with a primary action 'Confirm Intake'. Below hero: Daily status/adherence ring chart. Floating Action Button (FAB) for SOS."
+    },
+    {
+      "name": "Medikamentenplan (Schedule)",
+      "purpose": "Vertical timeline of all medications for the day/week.",
+      "states": {
+        "loading": "List skeletons",
+        "empty": "Clear schedule icon, 'No medications scheduled for today.'",
+        "error": "Error loading timeline with retry"
+      },
+      "layout": "Sticky date picker at top (glassmorphism). Timeline view mapping hours. Each row contains medication name, dosage, and status badge (Taken, Missed, Upcoming). Bottom sticky button to 'Add Medication'."
+    },
+    {
+      "name": "Caregiver / Relative View",
+      "purpose": "Provides caregivers a tile-based overview of multiple patients and rapid alert access.",
+      "states": {
+        "loading": "Skeleton tiles",
+        "empty": "Prompt to 'Add patient to monitor'",
+        "error": "Failed to fetch patient data"
+      },
+      "layout": "Patient switcher at the top. Grid of large tiles (52x52 min targets) showing Patient Status, Adherence, Missed Doses Alerts, and recent reports. Focus on high contrast and simple data visualization."
+    },
+    {
+      "name": "Geräte-Status (Device Sync)",
+      "purpose": "Monitor connection and health of VYLNAX PRO dispenser and VYLNAX Band.",
+      "states": {
+        "loading": "Scanning for devices animation",
+        "empty": "No devices connected, 'Pair Device' button",
+        "error": "Connection lost alert"
+      },
+      "layout": "Split view: Top half VYLNAX PRO Dispenser (Water level, Battery, Compartments filled). Bottom half VYLNAX Band (Battery, Connection status). Uses device imagery with gradient backdrops."
+    }
+  ],
+  "images": {
+    "splash_background": {
+      "url": "https://images.unsplash.com/photo-1687197180710-b2b9484a3c5f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA0MTJ8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGJsdWUlMjBjbGVhbiUyMHRlY2hub2xvZ3l8ZW58MHx8fHwxNzgzMjU3MTE2fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Abstract clean blue waves for splash screen background"
+    },
+    "vylnax_band_hero": {
+      "url": "https://images.unsplash.com/photo-1617625802912-cde586faf331?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwxfHxzbWFydHdhdGNoJTIwaGVhbHRoJTIwdHJhY2tlciUyMHdyaXN0fGVufDB8fHx8MTc4MzI1NzExNnww&ixlib=rb-4.1.0&q=85",
+      "alt": "Smartwatch representing the VYLNAX Band"
+    },
+    "caregiver_banner": {
+      "url": "https://images.unsplash.com/photo-1586324304780-c9a5031a3599?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODF8MHwxfHNlYXJjaHwxfHxjYXJlZ2l2ZXIlMjBoZWxwaW5nJTIwcGF0aWVudHxlbnwwfHx8fDE3ODMyNTcxMTZ8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Caregiver holding patient's hands, representing the human aspect of care"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Follow '1 iOS-Native Clean' personality rigorously. Ensure high contrast for elderly patients and caregivers.",
+    "Brand Color Override: The prompt explicitly requested 'Blue, White, Dark Blue', thereby lifting the anti-pattern blue ban. Do not substitute blue with near-black. Use the blue hex values specified.",
+    "Create a prominent floating SOS button across main screens with a vibrant warning color (orange/red) so it stands out from the clinical blue base.",
+    "Implement >52pt touch targets on critical interactions (especially in Caregiver View) to align with healthcare app usability research for seniors.",
+    "For the Caregiver dashboard, utilize a tile-based UI layout derived from web research ensuring cognitive ease (no deeper than 2 levels of navigation).",
+    "Adherence metrics (Daily ring chart, Weekly bar chart) should use the 'brandPrimary' and 'success' tokens.",
+    "Always apply a dark bottom scrim to the splash_background image before overlaying white text to ensure readability.",
+    "Device Sync screen should display two main cards, one for the VYLNAX PRO Dispenser and one for the Band, showing simulated hardware metrics (battery, compartment status)."
+  ],
+  "haptics": {
+    "primary_button_press": "impactLight",
+    "confirm_medication": "notificationSuccess",
+    "missed_dose_alert": "notificationWarning",
+    "sos_button_press": "impactHeavy",
+    "tab_switch": "selection"
+  }
+}

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="3" time="13.591" timestamp="2026-07-05T13:38:41.854517+00:00" hostname="agent-env-76103fe3-ae42-4f54-80d9-d94d19e5fa94"><testcase classname="backend.tests.test_vylnax_api.TestAssistant" name="test_history_starts_empty" time="2.089" /><testcase classname="backend.tests.test_vylnax_api.TestAssistant" name="test_chat_and_history_and_multiturn" time="11.082" /><testcase classname="backend.tests.test_vylnax_api.TestAssistant" name="test_history_delete" time="0.381"><failure message="assert 502 == 200&#10; +  where 502 = &lt;Response [502]&gt;.status_code">backend/tests/test_vylnax_api.py:317: in test_history_delete
+    assert r.status_code == 200
+E   assert 502 == 200
+E    +  where 502 = &lt;Response [502]&gt;.status_code</failure></testcase></testsuite></testsuites>
