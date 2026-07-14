@@ -1,0 +1,38 @@
+{
+  "users": [
+    {
+      "user_id": "user_a1f335e4bcf0",
+      "email": "local@vylnax.pro",
+      "name": "VYLNAX Benutzer",
+      "picture": "",
+      "role": "patient",
+      "created_at": "2026-07-06T16:27:34.220027+00:00",
+      "_id": "aa4965e6772d4d279c281bf79d76d3d6"
+    }
+  ],
+  "user_sessions": [
+    {
+      "session_token": "local-dev",
+      "user_id": "user_a1f335e4bcf0",
+      "expires_at": "2026-07-19T22:11:51.998890+00:00",
+      "created_at": "2026-07-12T22:11:51.999048+00:00",
+      "_id": "3f622cc1005343608efaf0a11c931c11"
+    }
+  ],
+  "patients": [
+    {
+      "id": "pat_2a940d563f67",
+      "owner_id": "user_a1f335e4bcf0",
+      "name": "VYLNAX Benutzer",
+      "age": null,
+      "room": null,
+      "notes": "Eigenes Profil",
+      "is_self": true,
+      "created_at": "2026-07-06T16:27:34.220333+00:00",
+      "_id": "63fed80772494711b3c49ecacb60ecc0"
+    }
+  ],
+  "medications": [],
+  "intakes": [],
+  "chat_messages": []
+}

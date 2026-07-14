@@ -1,0 +1,27 @@
+VYLNAX – PRVI ANDROID APK
+
+Ova verzija je pripremljena za EAS Build i koristi online backend:
+https://vylnax-api.onrender.com
+
+1. Otvorite Command Prompt u folderu:
+   frontend
+
+2. Prijavite se ili napravite besplatan Expo račun:
+   npx eas-cli@latest login
+
+3. Pokrenite izradu instalacijskog APK-a:
+   npx eas-cli@latest build --platform android --profile preview
+
+4. Kod prvog pokretanja EAS može pitati:
+   - Would you like to automatically create an EAS project? -> Y
+   - Generate a new Android Keystore? -> Y
+
+5. Sačekajte završetak builda. EAS će prikazati web-adresu i QR kod.
+   Otvorite adresu na Android telefonu i instalirajte APK.
+
+Nakon instalacije aplikacija se otvara direktno preko VYLNAX ikone.
+Laptop i Expo Go više nisu potrebni za korištenje aplikacije.
+Internet je potreban jer aplikacija koristi online backend.
+
+Za Google Play kasnije koristite:
+   npx eas-cli@latest build --platform android --profile production

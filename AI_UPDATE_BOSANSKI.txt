@@ -1,0 +1,17 @@
+VYLNAX AI UPDATE 0.2.1
+
+URADJENO:
+- Postojeći ekran KI-Assistent sada koristi pravi Gemini AI preko /api/assistant/chat.
+- AI dobija kontekst aktivnog pacijenta, njegovih lijekova i alergija.
+- Razgovori se i dalje spremaju u postojeću historiju.
+- Dodane su jasne serverske greške za timeout, limit i nedostupan AI servis.
+- Stari javni /api/ai/chat endpoint je zadržan radi kompatibilnosti, ali sada traži prijavu.
+- Gemini model je postavljen na gemini-flash-latest.
+
+SIGURNOST:
+- GEMINI_API_KEY nije upisan u ZIP. Na Renderu mora ostati Environment Variable GEMINI_API_KEY.
+- Mobilna aplikacija ne sadrži tajni API ključ.
+
+VAZNO:
+- Frontend i dizajn nisu mijenjani; postojeći stabilni ekran KI-Assistent koristi isti /assistant/chat poziv.
+- Za lokalni backend upisati ključ u backend/.env. Za Render koristiti Render Environment.

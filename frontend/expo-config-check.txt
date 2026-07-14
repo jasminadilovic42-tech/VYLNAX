@@ -1,0 +1,71 @@
+env: load .env
+env: export EXPO_PUBLIC_BACKEND_URL EXPO_USE_FAST_RESOLVER
+
+{
+  name: [32m'VYLNAX'[39m,
+  slug: [32m'vylnax'[39m,
+  version: [32m'0.2.0'[39m,
+  orientation: [32m'portrait'[39m,
+  icon: [32m'./assets/images/icon.png'[39m,
+  scheme: [32m'vylnax'[39m,
+  userInterfaceStyle: [32m'automatic'[39m,
+  newArchEnabled: [33mtrue[39m,
+  plugins: [
+    [32m'expo-router'[39m,
+    [
+      [32m'expo-camera'[39m,
+      {
+        cameraPermission: [32m'VYLNAX benötigt die Kamera zum Scannen von Medikamenten-Barcodes und Rezepten.'[39m
+      }
+    ],
+    [
+      [32m'expo-splash-screen'[39m,
+      {
+        image: [32m'./assets/images/splash-image.png'[39m,
+        imageWidth: [33m200[39m,
+        resizeMode: [32m'contain'[39m,
+        backgroundColor: [32m'#000000'[39m
+      }
+    ]
+  ],
+  description: [90mundefined[39m,
+  sdkVersion: [32m'54.0.0'[39m,
+  platforms: [
+    [32m'ios'[39m,
+    [32m'android'[39m,
+    [32m'web'[39m
+  ],
+  ios: {
+    supportsTablet: [33mtrue[39m,
+    bundleIdentifier: [32m'com.vylnax.app'[39m
+  },
+  android: {
+    edgeToEdgeEnabled: [33mtrue[39m,
+    package: [32m'com.vylnax.app'[39m,
+    versionCode: [33m1[39m,
+    permissions: [
+      [32m'CAMERA'[39m,
+      [32m'android.permission.CAMERA'[39m,
+      [32m'android.permission.RECORD_AUDIO'[39m
+    ],
+    adaptiveIcon: {
+      foregroundImage: [32m'./assets/images/adaptive-icon.png'[39m,
+      backgroundColor: [32m'#000000'[39m
+    }
+  },
+  web: {
+    bundler: [32m'metro'[39m,
+    output: [32m'single'[39m,
+    favicon: [32m'./assets/images/favicon.png'[39m
+  },
+  experiments: {
+    typedRoutes: [33mtrue[39m
+  },
+  extra: {
+    router: {}
+  },
+  androidStatusBar: {
+    backgroundColor: [32m'#000000'[39m
+  }
+}
+
