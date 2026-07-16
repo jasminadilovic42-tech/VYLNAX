@@ -2,7 +2,7 @@
   "expo": {
     "name": "VYLNAX",
     "slug": "vylnax",
-    "version": "0.2.2",
+    "version": "0.2.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "vylnax",
@@ -10,7 +10,11 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.vylnax.app"
+      "bundleIdentifier": "com.vylnax.app",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Allow $(PRODUCT_NAME) to use speech recognition.",
+        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to use the microphone."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -19,8 +23,11 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.vylnax.app",
-      "versionCode": 3,
+      "versionCode": 4,
       "permissions": [
+        "CAMERA",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
         "CAMERA",
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
@@ -58,6 +65,12 @@
       "eas": {
         "projectId": "fbdb9d79-e419-4090-9184-92fb9bced338"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/fbdb9d79-e419-4090-9184-92fb9bced338"
     }
   }
 }

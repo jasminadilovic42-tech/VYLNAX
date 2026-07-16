@@ -12,7 +12,8 @@
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://vylnax.onrender.com",
         "EXPO_USE_FAST_RESOLVER": "1"
-      }
+      },
+      "channel": "preview"
     },
     "production": {
       "android": {
@@ -21,7 +22,8 @@
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://vylnax.onrender.com",
         "EXPO_USE_FAST_RESOLVER": "1"
-      }
+      },
+      "channel": "production"
     }
   },
   "submit": {
