@@ -82,7 +82,11 @@ const stopListening = () => {
   ExpoSpeechRecognitionModule.stop();
 };
   const speakText = async (text: string) => {
+  const isSpeaking = await Speech.isSpeakingAsync();
+
+if (isSpeaking) {
   await Speech.stop();
+}
 
   if (speakingText === text) {
     setSpeakingText(null);
