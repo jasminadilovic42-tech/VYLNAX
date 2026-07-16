@@ -95,6 +95,10 @@ if (isSpeaking) {
 
   setSpeakingText(text);
   const cleanText = text
+  .replace(/VYLNAX\s+PRO\s+AI/gi, "Vilnaks Pro Asistent")
+  .replace(/VYLNAX\s+PRO/gi, "Vilnaks Pro")
+  .replace(/VYLNAX\s+AI/gi, "Vilnaks Asistent")
+  .replace(/VYLNAX/gi, "Vilnaks")
   .replace(/\*\*/g, "")
   .replace(/\*/g, "")
   .replace(/#{1,6}\s?/g, "")
@@ -108,7 +112,7 @@ if (isSpeaking) {
 
 Speech.speak(cleanText, {
     language: "de-DE",
-    rate: 0.95,
+    rate: 1.0,
     pitch: 1.0,
     onDone: () => setSpeakingText(null),
     onStopped: () => setSpeakingText(null),
