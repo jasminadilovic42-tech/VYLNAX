@@ -791,8 +791,8 @@ async def _gemini_generate(message: str, system_text: str) -> str:
     # Try several models automatically. 404 means the model is not available
     # for this API key; 429/503 are temporary capacity or quota problems.
     models = [
-        "gemini-flash-latest",
         "gemini-3.1-flash-lite",
+        "gemini-flash-latest",
         "gemini-3.5-flash",
         "gemini-2.0-flash-001",
     ]

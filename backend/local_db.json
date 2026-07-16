@@ -34,5 +34,15 @@
   ],
   "medications": [],
   "intakes": [],
-  "chat_messages": []
+  "chat_messages": [],
+  "device_state": [
+    {
+      "patient_id": "pat_2a940d563f67",
+      "firmware": "3.2.1",
+      "serial": "VX-563F67",
+      "last_restart": "2026-07-15T12:49:27.960350+00:00",
+      "last_maintenance": "2026-07-03T12:49:27.960396+00:00",
+      "_id": "0626103b090b448ea4ff7ea40c2b247b"
+    }
+  ]
 }
