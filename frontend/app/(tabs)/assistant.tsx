@@ -10,7 +10,11 @@ import { colors, spacing, radius, font } from "@/src/theme";
 import { api } from "@/src/api";
 import { useApp } from "@/src/context/AppContext";
 import { VLogo } from "@/src/components/ui";
-
+import * as Speech from "expo-speech";
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from "expo-speech-recognition";
 type Msg = { role: "user" | "assistant"; content: string };
 
 const SUGGESTIONS = [
@@ -28,7 +32,90 @@ export default function Assistant() {
   const [loading, setLoading] = useState(false);
   const [initial, setInitial] = useState(true);
   const scrollRef = useRef<ScrollView>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [spokenText, setSpokenText] = useState("");
+  const [speakingText, setSpeakingText] = useState<string | null>(null);
+useSpeechRecognitionEvent("start", () => {
+  setIsListening(true);
+});
 
+useSpeechRecognitionEvent("end", () => {
+  setIsListening(false);
+});
+
+useSpeechRecognitionEvent("result", (event) => {
+  const text = event.results?.[0]?.transcript ?? "";
+
+  setSpokenText(text);
+  setInput(text);
+
+  if (event.isFinal && text.trim()) {
+    send(text);
+    setSpokenText("");
+    setInput("");
+  }
+});
+useSpeechRecognitionEvent("error", (event) => {
+  console.log("Speech error:", event);
+  setIsListening(false);
+});
+
+const startListening = async () => {
+  await Speech.stop();
+
+  const permission =
+    await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+
+  if (!permission.granted) return;
+
+  setSpokenText("");
+  setInput("");
+
+  ExpoSpeechRecognitionModule.start({
+    lang: "de-DE",
+    interimResults: true,
+    continuous: false,
+  });
+};
+
+const stopListening = () => {
+  ExpoSpeechRecognitionModule.stop();
+};
+  const speakText = async (text: string) => {
+  await Speech.stop();
+
+  if (speakingText === text) {
+    setSpeakingText(null);
+    return;
+  }
+
+  setSpeakingText(text);
+  const cleanText = text
+  .replace(/\*\*/g, "")
+  .replace(/\*/g, "")
+  .replace(/#{1,6}\s?/g, "")
+  .replace(/`/g, "")
+  .replace(/_/g, "")
+  .replace(/^\s*[-•]\s+/gm, "")
+  .replace(/^\s*\d+\.\s+/gm, "")
+  .replace(/\[(.*?)\]\((.*?)\)/g, "$1")
+  .replace(/\s+/g, " ")
+  .trim();
+
+Speech.speak(cleanText, {
+    language: "de-DE",
+    rate: 0.95,
+    pitch: 1.0,
+    onDone: () => setSpeakingText(null),
+    onStopped: () => setSpeakingText(null),
+    onError: () => setSpeakingText(null),
+  });
+};
+
+  const stopSpeaking = async () => {
+  await Speech.stop();
+  setSpeakingText(null);
+};
   const loadHistory = useCallback(async () => {
     try {
       const hist = await api<Msg[]>("/assistant/history");
@@ -51,7 +138,9 @@ export default function Assistant() {
         body: { message: msg, patient_id: activePatient?.id },
       });
       setMessages((m) => [...m, { role: "assistant", content: res.reply }]);
-    } catch {
+      
+    } catch (e) {
+       console.log(e);
       setMessages((m) => [...m, { role: "assistant", content: "Entschuldigung, der Assistent ist gerade nicht erreichbar. Bitte versuchen Sie es erneut." }]);
     } finally {
       setLoading(false);
@@ -59,7 +148,7 @@ export default function Assistant() {
     }
   };
 
-  const clear = async () => {
+    const clear = async () => {
     await api("/assistant/history", { method: "DELETE" });
     setMessages([]);
   };
@@ -109,8 +198,29 @@ export default function Assistant() {
                   <View style={styles.botAvatar}><Ionicons name="sparkles" size={14} color="#fff" /></View>
                 )}
                 <View style={[styles.bubble, m.role === "user" ? styles.userBubble : styles.botBubble]}>
-                  <Text style={[styles.bubbleText, m.role === "user" && { color: "#fff" }]}>{m.content}</Text>
-                </View>
+  <Text
+    style={[styles.bubbleText, m.role === "user" && { color: "#fff" }]}
+  >
+    {m.content}
+  </Text>
+
+  {m.role === "assistant" && (
+    <Pressable
+      onPress={() =>
+        speakingText === m.content
+          ? stopSpeaking()
+          : speakText(m.content)
+      }
+      style={{ marginTop: 8, alignSelf: "flex-end" }}
+    >
+      <Ionicons
+        name={speakingText === m.content ? "stop-circle" : "volume-high"}
+        size={22}
+        color={colors.brandPrimary}
+      />
+    </Pressable>
+  )}
+</View>
               </View>
             ))
           )}
@@ -135,6 +245,20 @@ export default function Assistant() {
             multiline
             onSubmitEditing={() => send(input)}
           />
+          <Pressable
+  onPressIn={startListening}
+  onPressOut={stopListening}
+  style={[
+    styles.voiceButton,
+    isListening && { backgroundColor: "#e53935" },
+  ]}
+>
+  <Ionicons
+    name={isListening ? "mic" : "mic-outline"}
+    size={24}
+    color="#fff"
+  />
+</Pressable>
           <Pressable testID="send-message" onPress={() => send(input)} disabled={!input.trim() || loading} style={[styles.sendBtn, (!input.trim() || loading) && { opacity: 0.5 }]}>
             <Ionicons name="arrow-up" size={22} color="#fff" />
           </Pressable>
@@ -145,6 +269,15 @@ export default function Assistant() {
 }
 
 const styles = StyleSheet.create({
+  voiceButton: {
+  width: 48,
+  height: 48,
+  borderRadius: 24,
+  backgroundColor: colors.brandPrimary,
+  justifyContent: "center",
+  alignItems: "center",
+  marginHorizontal: 8,
+},
   container: { flex: 1, backgroundColor: colors.surfaceSecondary },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: colors.surface, paddingHorizontal: spacing.lg, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
   headTitle: { flexDirection: "row", alignItems: "center", gap: spacing.sm },

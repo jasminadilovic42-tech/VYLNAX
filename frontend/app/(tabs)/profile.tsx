@@ -10,7 +10,8 @@ import { useAuth } from "@/src/context/AuthContext";
 import { useApp } from "@/src/context/AppContext";
 import { Card } from "@/src/components/ui";
 import { SectionTitle } from "@/src/components/shared";
-
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { LANGUAGES } from "../../config/languages";
 export default function Profile() {
   const { user, logout, setRole } = useAuth();
   const { patients, activePatient, setActivePatient, loadPatients } = useApp();
@@ -18,7 +19,8 @@ export default function Profile() {
   const router = useRouter();
   const [overview, setOverview] = useState<Record<string, any>>({});
   const [busy, setBusy] = useState(false);
-
+const [selectedLanguage, setSelectedLanguage] = useState("de-DE");
+const [showLanguages, setShowLanguages] = useState(false);
   const loadOverview = useCallback(async () => {
     const map: Record<string, any> = {};
     await Promise.all(
