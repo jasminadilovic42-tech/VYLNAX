@@ -1,11 +1,28 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Platform } from "react-native";
 import * as Haptics from "expo-haptics";
 import { colors } from "@/src/theme";
-
+import * as Speech from "expo-speech";
 export default function TabsLayout() {
+  useEffect(() => {
+  const welcomeTimer = setTimeout(() => {
+    Speech.speak(
+      "Willkommen bei VYLNAX. Wie kann ich Ihnen helfen?",
+      {
+        language: "de-DE",
+        rate: 0.95,
+        pitch: 1.0,
+      }
+    );
+  }, 1200);
+
+  return () => {
+    clearTimeout(welcomeTimer);
+    Speech.stop();
+  };
+}, []);
   return (
     <Tabs
       screenOptions={{
