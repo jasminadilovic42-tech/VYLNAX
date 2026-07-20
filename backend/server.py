@@ -65,11 +65,94 @@ class RoleUpdate(BaseModel):
 
 class PatientCreate(BaseModel):
     name: str
+
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    birth_date: Optional[str] = None
+    gender: Optional[str] = None
     age: Optional[int] = None
+
+    insurance_number: Optional[str] = None
+    health_insurance: Optional[str] = None
+    care_grade: Optional[str] = None
+    blood_group: Optional[str] = None
+
+    contact: Optional[dict] = None
+    accommodation: Optional[dict] = None
+    medical_information: Optional[dict] = None
+    nursing_assessment: Optional[dict] = None
+    physical_information: Optional[dict] = None
+    professional_contacts: Optional[dict] = None
+
+    special_instructions: Optional[str] = None
     room: Optional[str] = None
     notes: Optional[str] = None
 
+class RelativeCreate(BaseModel):
+    first_name: str
+    last_name: str
+    birth_date: Optional[str] = None
+    gender: Optional[str] = None
+    relationship: str
 
+    phone: Optional[str] = None
+    mobile: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+
+    is_emergency_contact: bool = False
+    emergency_priority: Optional[int] = None
+
+    permissions: Optional[dict] = None
+    notifications: Optional[dict] = None
+    notes: Optional[str] = None
+
+
+class CaregiverCreate(BaseModel):
+    first_name: str
+    last_name: str
+    professional_role: str
+    work_area: Optional[str] = None
+
+    organization: Optional[str] = None
+    employee_number: Optional[str] = None
+    phone: Optional[str] = None
+    mobile: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+
+    is_primary_caregiver: bool = False
+    available_for_emergency: bool = False
+
+    permissions: Optional[dict] = None
+    notifications: Optional[dict] = None
+    notes: Optional[str] = None
+
+
+class DoctorCreate(BaseModel):
+    title: Optional[str] = None
+    first_name: str
+    last_name: str
+    specialization: str
+    contact_type: Optional[str] = "Hausarzt"
+
+    practice_name: str
+    practice_address: Optional[str] = None
+    phone: Optional[str] = None
+    emergency_phone: Optional[str] = None
+    fax: Optional[str] = None
+    email: Optional[str] = None
+    website: Optional[str] = None
+
+    opening_hours: Optional[str] = None
+    consultation_notes: Optional[str] = None
+
+    is_primary_doctor: bool = False
+    available_for_emergency: bool = False
+
+    permissions: Optional[dict] = None
+    notifications: Optional[dict] = None
+    notes: Optional[str] = None
 class MedicationCreate(BaseModel):
     name: str
     dosage: str
@@ -366,21 +449,27 @@ async def list_patients(user=Depends(get_current_user)):
 
 
 @api_router.post("/patients")
-async def add_patient(body: PatientCreate, user=Depends(get_current_user)):
+async def add_patient(
+    body: PatientCreate,
+    user=Depends(get_current_user)
+):
+    patient_data = body.model_dump()
+
     doc = {
-        "id": uid("pat"),
+        "_id": uid("pat"),
         "owner_id": user["user_id"],
-        "name": body.name,
-        "age": body.age,
-        "room": body.room,
-        "notes": body.notes,
+        **patient_data,
         "is_self": False,
-        "allergies": [],
         "created_at": now_utc().isoformat(),
+        "updated_at": now_utc().isoformat(),
     }
+
     await db.patients.insert_one(doc)
+
     doc.pop("_id", None)
+
     return doc
+    
 
 
 @api_router.delete("/patients/{patient_id}")
@@ -396,7 +485,163 @@ async def _owns_patient(user, patient_id):
     if not p:
         raise HTTPException(status_code=404, detail="Patient not found")
     return p
+# ---------------- Relatives ----------------
 
+@api_router.get("/relatives")
+async def list_relatives(user=Depends(get_current_user)):
+    docs = await db.relatives.find(
+        {"owner_id": user["user_id"]},
+        {"_id": 0},
+    ).to_list(200)
+
+    docs.sort(key=lambda d: d.get("created_at", ""), reverse=True)
+    return docs
+
+
+@api_router.post("/relatives")
+async def add_relative(
+    body: RelativeCreate,
+    user=Depends(get_current_user),
+):
+    relative_data = body.model_dump()
+
+    doc = {
+        "_id": uid("rel"),
+        "owner_id": user["user_id"],
+        **relative_data,
+        "created_at": now_utc().isoformat(),
+        "updated_at": now_utc().isoformat(),
+    }
+
+    await db.relatives.insert_one(doc)
+    doc.pop("_id", None)
+
+    return doc
+
+
+@api_router.delete("/relatives/{relative_id}")
+async def delete_relative(
+    relative_id: str,
+    user=Depends(get_current_user),
+):
+    result = await db.relatives.delete_one({
+        "_id": relative_id,
+        "owner_id": user["user_id"],
+    })
+
+    if result.deleted_count == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="Relative not found",
+        )
+
+    return {"ok": True}
+
+
+# ---------------- Caregivers ----------------
+
+@api_router.get("/caregivers")
+async def list_caregivers(user=Depends(get_current_user)):
+    docs = await db.caregivers.find(
+        {"owner_id": user["user_id"]},
+        {"_id": 0},
+    ).to_list(200)
+
+    docs.sort(key=lambda d: d.get("created_at", ""), reverse=True)
+    return docs
+
+
+@api_router.post("/caregivers")
+async def add_caregiver(
+    body: CaregiverCreate,
+    user=Depends(get_current_user),
+):
+    caregiver_data = body.model_dump()
+
+    doc = {
+        "_id": uid("care"),
+        "owner_id": user["user_id"],
+        **caregiver_data,
+        "created_at": now_utc().isoformat(),
+        "updated_at": now_utc().isoformat(),
+    }
+
+    await db.caregivers.insert_one(doc)
+    doc.pop("_id", None)
+
+    return doc
+
+
+@api_router.delete("/caregivers/{caregiver_id}")
+async def delete_caregiver(
+    caregiver_id: str,
+    user=Depends(get_current_user),
+):
+    result = await db.caregivers.delete_one({
+        "_id": caregiver_id,
+        "owner_id": user["user_id"],
+    })
+
+    if result.deleted_count == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="Caregiver not found",
+        )
+
+    return {"ok": True}
+
+
+# ---------------- Doctors ----------------
+
+@api_router.get("/doctors")
+async def list_doctors(user=Depends(get_current_user)):
+    docs = await db.doctors.find(
+        {"owner_id": user["user_id"]},
+        {"_id": 0},
+    ).to_list(200)
+
+    docs.sort(key=lambda d: d.get("created_at", ""), reverse=True)
+    return docs
+
+
+@api_router.post("/doctors")
+async def add_doctor(
+    body: DoctorCreate,
+    user=Depends(get_current_user),
+):
+    doctor_data = body.model_dump()
+
+    doc = {
+        "_id": uid("doc"),
+        "owner_id": user["user_id"],
+        **doctor_data,
+        "created_at": now_utc().isoformat(),
+        "updated_at": now_utc().isoformat(),
+    }
+
+    await db.doctors.insert_one(doc)
+    doc.pop("_id", None)
+
+    return doc
+
+
+@api_router.delete("/doctors/{doctor_id}")
+async def delete_doctor(
+    doctor_id: str,
+    user=Depends(get_current_user),
+):
+    result = await db.doctors.delete_one({
+        "_id": doctor_id,
+        "owner_id": user["user_id"],
+    })
+
+    if result.deleted_count == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="Doctor not found",
+        )
+
+    return {"ok": True}
 
 # ---------------- Medications ----------------
 @api_router.get("/patients/{patient_id}/medications")
