@@ -109,15 +109,16 @@ if (isSpeaking) {
   .replace(/\[(.*?)\]\((.*?)\)/g, "$1")
   .replace(/\s+/g, " ")
   .trim();
-
-Speech.speak(cleanText, {
-    language: "de-DE",
-    rate: 1.0,
-    pitch: 1.0,
-    onDone: () => setSpeakingText(null),
-    onStopped: () => setSpeakingText(null),
-    onError: () => setSpeakingText(null),
-  });
+  const language =
+  cleanText.match(/[čćžšđ]/i) ? "bs-BA" : "de-DE";
+  Speech.speak(cleanText, {
+  language,
+  rate: language === "bs-BA" ? 0.83 : 0.90,
+  pitch: 1.0,
+  onDone: () => setSpeakingText(null),
+  onStopped: () => setSpeakingText(null),
+  onError: () => setSpeakingText(null),
+});
 };
 
   const stopSpeaking = async () => {

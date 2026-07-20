@@ -9,7 +9,7 @@ export default function TabsLayout() {
   useEffect(() => {
   const welcomeTimer = setTimeout(() => {
     Speech.speak(
-      "Willkommen bei VYLNAX. Wie kann ich Ihnen helfen?",
+      "Willkommen bei Vilnaks Pro. Wie kann ich Ihnen helfen?",
       {
         language: "de-DE",
         rate: 0.95,

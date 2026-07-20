@@ -543,11 +543,18 @@ async def delete_relative(
 @api_router.get("/caregivers")
 async def list_caregivers(user=Depends(get_current_user)):
     docs = await db.caregivers.find(
-        {"owner_id": user["user_id"]},
-        {"_id": 0},
+        {"owner_id": user["user_id"]}
     ).to_list(200)
 
-    docs.sort(key=lambda d: d.get("created_at", ""), reverse=True)
+    for doc in docs:
+        doc["id"] = str(doc.get("id") or doc["_id"])
+        doc.pop("_id", None)
+
+    docs.sort(
+        key=lambda d: d.get("created_at", ""),
+        reverse=True
+    )
+
     return docs
 
 
@@ -557,9 +564,11 @@ async def add_caregiver(
     user=Depends(get_current_user),
 ):
     caregiver_data = body.model_dump()
+    caregiver_id = uid("care")
 
     doc = {
-        "_id": uid("care"),
+        "_id": caregiver_id,
+        "id": caregiver_id,
         "owner_id": user["user_id"],
         **caregiver_data,
         "created_at": now_utc().isoformat(),
@@ -567,8 +576,8 @@ async def add_caregiver(
     }
 
     await db.caregivers.insert_one(doc)
-    doc.pop("_id", None)
 
+    doc.pop("_id", None)
     return doc
 
 
@@ -577,18 +586,23 @@ async def delete_caregiver(
     caregiver_id: str,
     user=Depends(get_current_user),
 ):
-    result = await db.caregivers.delete_one({
-        "_id": caregiver_id,
-        "owner_id": user["user_id"],
-    })
+    result = await db.caregivers.delete_one(
+        {
+            "_id": caregiver_id,
+            "owner_id": user["user_id"],
+        }
+    )
 
     if result.deleted_count == 0:
         raise HTTPException(
             status_code=404,
-            detail="Caregiver not found",
+            detail="Caregiver not found"
         )
 
-    return {"ok": True}
+    return {
+        "success": True,
+        "deleted_id": caregiver_id,
+    }
 
 
 # ---------------- Doctors ----------------
