@@ -9,7 +9,7 @@ import { StatusBar } from "expo-status-bar";
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { AuthProvider } from "@/src/context/AuthContext";
 import { AppProvider } from "@/src/context/AppContext";
-
+import { AccessProvider } from "@/src/context/AccessContext";
 LogBox.ignoreAllLogs(true);
 SplashScreen.preventAutoHideAsync();
 
@@ -28,6 +28,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AuthProvider>
+          <AccessProvider>
           <AppProvider>
             <StatusBar style="dark" />
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#FFFFFF" } }}>
@@ -46,6 +47,7 @@ export default function RootLayout() {
               <Stack.Screen name="scan-barcode" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
             </Stack>
           </AppProvider>
+         </AccessProvider>
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
