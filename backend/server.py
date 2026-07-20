@@ -1402,63 +1402,64 @@ async def barcode_lookup(code: str, user=Depends(get_current_user)):
     return {"found": True, "code": normalized, **info}
 
 
-# ---------------- Demo seed ----------------
-@api_router.post("/demo/seed")
-async def demo_seed(user=Depends(get_current_user)):
-    # remove old demo patient
-    old = await db.patients.find_one({"owner_id": user["user_id"], "is_demo": True}, {"_id": 0})
-    if old:
-        await db.medications.delete_many({"patient_id": old["id"]})
-        await db.intakes.delete_many({"patient_id": old["id"]})
-        await db.patients.delete_one({"id": old["id"]})
+# ---------------- Demo cleanup ----------------
 
-    pid = uid("pat")
-    await db.patients.insert_one({
-        "id": pid, "owner_id": user["user_id"], "name": "Maria Schmidt (Demo)",
-        "age": 74, "room": "Zimmer 12", "notes": "Demo-Patientin",
-        "is_self": False, "is_demo": True,
-        "allergies": ["NSAR / Schmerzmittel", "Penicillin"],
-        "created_at": now_utc().isoformat(),
-    })
+@api_router.delete("/demo/cleanup")
+async def cleanup_demo_data(user=Depends(get_current_user)):
+    owner_id = user["user_id"]
 
-    demo_meds = [
-        {"name": "Metformin", "dosage": "500 mg", "form": "Tablette", "times": ["08:00", "20:00"], "color": "#1A65A9", "prescriber": "Dr. Weber"},
-        {"name": "Ramipril", "dosage": "5 mg", "form": "Tablette", "times": ["08:00"], "color": "#0B3A64", "prescriber": "Dr. Weber"},
-        {"name": "Ibuprofen", "dosage": "400 mg", "form": "Tablette", "times": ["12:00"], "color": "#D97706", "prescriber": "Dr. Klein"},
-        {"name": "Aspirin", "dosage": "100 mg", "form": "Tablette", "times": ["08:00"], "color": "#DC2626", "prescriber": "Dr. Weber"},
-        {"name": "L-Thyroxin", "dosage": "100 µg", "form": "Tablette", "times": ["07:00"], "color": "#059669", "prescriber": "Dr. Weber"},
-        {"name": "Eisen", "dosage": "100 mg", "form": "Kapsel", "times": ["07:00"], "color": "#7C3AED", "prescriber": "Dr. Weber"},
-        {"name": "Vitamin D3", "dosage": "1000 I.E.", "form": "Tablette", "times": ["20:00"], "color": "#0284C7", "prescriber": "Dr. Weber"},
+    demo_patients = await db.patients.find(
+        {
+            "owner_id": owner_id,
+            "is_demo": True,
+        }
+    ).to_list(200)
+
+    demo_patient_ids = [
+        patient["_id"]
+        for patient in demo_patients
+        if patient.get("_id")
     ]
-    med_ids = []
-    for m in demo_meds:
-        mid = uid("med")
-        med_ids.append((mid, m["times"]))
-        await db.medications.insert_one({
-            "id": mid, "patient_id": pid, "name": m["name"], "dosage": m["dosage"],
-            "form": m["form"], "times": sorted(m["times"]), "days": [0, 1, 2, 3, 4, 5, 6],
-            "color": m["color"], "frequency": "Täglich", "prescriber": m["prescriber"],
-            "note": None, "created_at": now_utc().isoformat(),
-        })
 
-    # intake logs for last 6 days: mostly taken, a few missed
-    today = now_utc().date()
-    inserts = []
-    for i in range(1, 7):
-        d = today - timedelta(days=i)
-        ds = d.strftime("%Y-%m-%d")
-        for mid, times in med_ids:
-            for t in times:
-                status = "missed" if (i in (2, 4) and t == "12:00") else "taken"
-                inserts.append({
-                    "patient_id": pid, "medication_id": mid, "scheduled_date": ds,
-                    "scheduled_time": t, "status": status,
-                    "taken_at": now_utc().isoformat() if status == "taken" else None,
-                })
-    if inserts:
-        await db.intakes.insert_many(inserts)
-    return {"ok": True, "patient_id": pid}
+    deleted_medications = 0
+    deleted_intakes = 0
 
+    if demo_patient_ids:
+        medication_result = await db.medications.delete_many(
+            {
+                "patient_id": {
+                    "$in": demo_patient_ids,
+                }
+            }
+        )
+
+        intake_result = await db.intakes.delete_many(
+            {
+                "patient_id": {
+                    "$in": demo_patient_ids,
+                }
+            }
+        )
+
+        deleted_medications = medication_result.deleted_count
+        deleted_intakes = intake_result.deleted_count
+
+    patient_result = await db.patients.delete_many(
+        {
+            "owner_id": owner_id,
+            "is_demo": True,
+        }
+    )
+
+    return {
+        "success": True,
+        "deleted_patients": patient_result.deleted_count,
+        "deleted_medications": deleted_medications,
+        "deleted_intakes": deleted_intakes,
+    }
+
+   
+       
 class AIChatRequest(BaseModel):
     message: str
 
