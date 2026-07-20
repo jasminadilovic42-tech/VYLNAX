@@ -9,6 +9,9 @@ import os
 import re
 import logging
 import uuid
+import secrets
+import hashlib
+import hmac
 import httpx
 import asyncio
 from pathlib import Path
@@ -60,7 +63,46 @@ class SessionRequest(BaseModel):
 
 
 class RoleUpdate(BaseModel):
-    role: str  # patient | relative | caregiver
+    role: str  # patient | relative | caregiver | doctor | admin
+
+
+class AccessUserCreate(BaseModel):
+    name: str
+    role: str  # patient | relative | caregiver | doctor
+    pin: str
+    source_id: Optional[str] = None
+    patient_id: Optional[str] = None
+    active: bool = True
+
+
+class AccessUserUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    pin: Optional[str] = None
+    patient_id: Optional[str] = None
+    active: Optional[bool] = None
+
+
+class AccessLoginRequest(BaseModel):
+    access_user_id: str
+    pin: str
+    patient_id: Optional[str] = None
+
+
+class AccessBiometricRequest(BaseModel):
+    access_user_id: str
+    patient_id: Optional[str] = None
+    device_id: str
+
+
+class BiometricEnrollmentRequest(BaseModel):
+    access_user_id: str
+    device_id: str
+    enabled: bool = True
+
+
+class ActivePatientRequest(BaseModel):
+    patient_id: str
 
 
 class PatientCreate(BaseModel):
@@ -358,6 +400,166 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
     return user
 
 
+
+ACCESS_ROLES = {"patient", "relative", "caregiver", "doctor"}
+WRITE_ROLES = {"caregiver", "doctor"}
+ADMIN_ROLES = {"admin"}
+
+
+def _validate_pin(pin: str):
+    if not re.fullmatch(r"\d{4,6}", pin or ""):
+        raise HTTPException(
+            status_code=400,
+            detail="PIN must contain 4 to 6 digits",
+        )
+
+
+def _hash_pin(pin: str, salt_hex: Optional[str] = None):
+    _validate_pin(pin)
+    salt = bytes.fromhex(salt_hex) if salt_hex else secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        pin.encode("utf-8"),
+        salt,
+        210_000,
+    )
+    return salt.hex(), digest.hex()
+
+
+def _verify_pin(pin: str, salt_hex: str, digest_hex: str):
+    try:
+        _, calculated = _hash_pin(pin, salt_hex)
+        return hmac.compare_digest(calculated, digest_hex)
+    except Exception:
+        return False
+
+
+def _access_permissions(role: str):
+    role = (role or "").lower()
+    can_write = role in WRITE_ROLES
+    return {
+        "can_view": role in ACCESS_ROLES or role in ADMIN_ROLES,
+        "can_create": can_write,
+        "can_update": can_write,
+        "can_delete": can_write,
+        "can_manage_access": role in ADMIN_ROLES,
+    }
+
+
+def _public_access_user(doc: dict):
+    if not doc:
+        return None
+    result = dict(doc)
+    result.pop("_id", None)
+    result.pop("pin_hash", None)
+    result.pop("pin_salt", None)
+    result["permissions"] = _access_permissions(result.get("role", ""))
+    return result
+
+
+async def _write_audit_log(
+    owner_id: str,
+    action: str,
+    access_user: Optional[dict] = None,
+    patient_id: Optional[str] = None,
+    target_type: Optional[str] = None,
+    target_id: Optional[str] = None,
+    details: Optional[dict] = None,
+):
+    doc = {
+        "id": uid("audit"),
+        "owner_id": owner_id,
+        "patient_id": patient_id,
+        "access_user_id": access_user.get("id") if access_user else None,
+        "access_user_name": access_user.get("name") if access_user else None,
+        "access_role": access_user.get("role") if access_user else "owner",
+        "action": action,
+        "target_type": target_type,
+        "target_id": target_id,
+        "details": details or {},
+        "created_at": now_utc().isoformat(),
+    }
+    await db.audit_logs.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+async def get_current_access_session(
+    user=Depends(get_current_user),
+    x_access_token: Optional[str] = Header(None, alias="X-Access-Token"),
+):
+    if not x_access_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Access profile login required",
+        )
+
+    session = await db.access_sessions.find_one(
+        {
+            "access_token": x_access_token,
+            "owner_id": user["user_id"],
+        },
+        {"_id": 0},
+    )
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid access session")
+
+    expires_at = session.get("expires_at")
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at and expires_at < now_utc():
+        await db.access_sessions.delete_one({"access_token": x_access_token})
+        raise HTTPException(status_code=401, detail="Access session expired")
+
+    access_user = await db.access_users.find_one(
+        {
+            "id": session["access_user_id"],
+            "owner_id": user["user_id"],
+            "active": True,
+        },
+        {"_id": 0},
+    )
+    if not access_user:
+        raise HTTPException(status_code=401, detail="Access user not found or inactive")
+
+    return {
+        "owner": user,
+        "session": session,
+        "access_user": access_user,
+        "patient_id": session.get("patient_id"),
+    }
+
+
+async def require_write_access(
+    access=Depends(get_current_access_session),
+):
+    role = access["access_user"].get("role")
+    if role not in WRITE_ROLES:
+        raise HTTPException(
+            status_code=403,
+            detail="Read-only access. Only caregiver or doctor may change data.",
+        )
+    return access
+
+
+async def _assert_access_patient(access: dict, patient_id: str):
+    active_patient_id = access.get("patient_id")
+    assigned_patient_id = access["access_user"].get("patient_id")
+
+    if active_patient_id and active_patient_id != patient_id:
+        raise HTTPException(
+            status_code=403,
+            detail="This access session is connected to another patient",
+        )
+    if assigned_patient_id and assigned_patient_id != patient_id:
+        raise HTTPException(
+            status_code=403,
+            detail="This access profile is not assigned to this patient",
+        )
+
+
 @api_router.get("/health")
 async def health():
     return {"ok": True, "mode": "local" if USE_LOCAL_DB else "mongo"}
@@ -434,10 +636,429 @@ async def logout(authorization: Optional[str] = Header(None)):
 
 @api_router.put("/auth/role")
 async def update_role(body: RoleUpdate, user=Depends(get_current_user)):
-    if body.role not in ("patient", "relative", "caregiver"):
+    if body.role not in ("patient", "relative", "caregiver", "doctor", "admin"):
         raise HTTPException(status_code=400, detail="Invalid role")
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"role": body.role}})
     return {"ok": True, "role": body.role}
+
+
+
+# ---------------- Access management ----------------
+@api_router.get("/access-users")
+async def list_access_users(user=Depends(get_current_user)):
+    docs = await db.access_users.find(
+        {"owner_id": user["user_id"]},
+        {"_id": 0},
+    ).to_list(500)
+    docs.sort(key=lambda d: (d.get("role", ""), d.get("name", "")))
+    return [_public_access_user(doc) for doc in docs]
+
+
+@api_router.post("/access-users")
+async def create_access_user(
+    body: AccessUserCreate,
+    user=Depends(get_current_user),
+):
+    role = body.role.strip().lower()
+    if role not in ACCESS_ROLES:
+        raise HTTPException(status_code=400, detail="Invalid access role")
+
+    salt, pin_hash = _hash_pin(body.pin)
+    access_user_id = uid("access")
+
+    if body.patient_id:
+        await _owns_patient(user, body.patient_id)
+
+    doc = {
+        "id": access_user_id,
+        "owner_id": user["user_id"],
+        "name": body.name.strip(),
+        "role": role,
+        "source_id": body.source_id,
+        "patient_id": body.patient_id,
+        "pin_salt": salt,
+        "pin_hash": pin_hash,
+        "active": body.active,
+        "biometric_devices": [],
+        "failed_attempts": 0,
+        "locked_until": None,
+        "last_login_at": None,
+        "created_at": now_utc().isoformat(),
+        "updated_at": now_utc().isoformat(),
+    }
+    await db.access_users.insert_one(doc)
+    await _write_audit_log(
+        owner_id=user["user_id"],
+        action="access_user_created",
+        patient_id=body.patient_id,
+        target_type="access_user",
+        target_id=access_user_id,
+        details={"name": body.name, "role": role},
+    )
+    return _public_access_user(doc)
+
+
+@api_router.put("/access-users/{access_user_id}")
+async def update_access_user(
+    access_user_id: str,
+    body: AccessUserUpdate,
+    user=Depends(get_current_user),
+):
+    existing = await db.access_users.find_one(
+        {"id": access_user_id, "owner_id": user["user_id"]},
+        {"_id": 0},
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Access user not found")
+
+    updates = body.model_dump(exclude_none=True)
+
+    if "role" in updates:
+        updates["role"] = updates["role"].strip().lower()
+        if updates["role"] not in ACCESS_ROLES:
+            raise HTTPException(status_code=400, detail="Invalid access role")
+
+    if "patient_id" in updates and updates["patient_id"]:
+        await _owns_patient(user, updates["patient_id"])
+
+    pin = updates.pop("pin", None)
+    if pin is not None:
+        salt, pin_hash = _hash_pin(pin)
+        updates["pin_salt"] = salt
+        updates["pin_hash"] = pin_hash
+        updates["failed_attempts"] = 0
+        updates["locked_until"] = None
+
+    updates["updated_at"] = now_utc().isoformat()
+
+    await db.access_users.update_one(
+        {"id": access_user_id, "owner_id": user["user_id"]},
+        {"$set": updates},
+    )
+    updated = await db.access_users.find_one(
+        {"id": access_user_id, "owner_id": user["user_id"]},
+        {"_id": 0},
+    )
+    await _write_audit_log(
+        owner_id=user["user_id"],
+        action="access_user_updated",
+        patient_id=updated.get("patient_id"),
+        target_type="access_user",
+        target_id=access_user_id,
+        details={"changed_fields": sorted(updates.keys())},
+    )
+    return _public_access_user(updated)
+
+
+@api_router.delete("/access-users/{access_user_id}")
+async def delete_access_user(
+    access_user_id: str,
+    user=Depends(get_current_user),
+):
+    existing = await db.access_users.find_one(
+        {"id": access_user_id, "owner_id": user["user_id"]},
+        {"_id": 0},
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Access user not found")
+
+    await db.access_sessions.delete_many(
+        {
+            "access_user_id": access_user_id,
+            "owner_id": user["user_id"],
+        }
+    )
+    await db.access_users.delete_one(
+        {
+            "id": access_user_id,
+            "owner_id": user["user_id"],
+        }
+    )
+    await _write_audit_log(
+        owner_id=user["user_id"],
+        action="access_user_deleted",
+        patient_id=existing.get("patient_id"),
+        target_type="access_user",
+        target_id=access_user_id,
+        details={"name": existing.get("name"), "role": existing.get("role")},
+    )
+    return {"ok": True}
+
+
+@api_router.post("/access/login")
+async def access_login(
+    body: AccessLoginRequest,
+    user=Depends(get_current_user),
+):
+    access_user = await db.access_users.find_one(
+        {
+            "id": body.access_user_id,
+            "owner_id": user["user_id"],
+            "active": True,
+        },
+        {"_id": 0},
+    )
+    if not access_user:
+        raise HTTPException(status_code=404, detail="Access user not found")
+
+    locked_until = access_user.get("locked_until")
+    if isinstance(locked_until, str) and locked_until:
+        locked_until_dt = datetime.fromisoformat(locked_until)
+        if locked_until_dt.tzinfo is None:
+            locked_until_dt = locked_until_dt.replace(tzinfo=timezone.utc)
+        if locked_until_dt > now_utc():
+            raise HTTPException(
+                status_code=423,
+                detail="Access profile temporarily locked",
+            )
+
+    if not _verify_pin(
+        body.pin,
+        access_user.get("pin_salt", ""),
+        access_user.get("pin_hash", ""),
+    ):
+        attempts = int(access_user.get("failed_attempts", 0)) + 1
+        updates = {"failed_attempts": attempts}
+        if attempts >= 5:
+            updates["locked_until"] = (now_utc() + timedelta(minutes=15)).isoformat()
+            updates["failed_attempts"] = 0
+        await db.access_users.update_one(
+            {"id": access_user["id"]},
+            {"$set": updates},
+        )
+        await _write_audit_log(
+            owner_id=user["user_id"],
+            action="access_login_failed",
+            access_user=access_user,
+            patient_id=body.patient_id or access_user.get("patient_id"),
+            target_type="access_user",
+            target_id=access_user["id"],
+        )
+        raise HTTPException(status_code=401, detail="Invalid PIN")
+
+    patient_id = body.patient_id or access_user.get("patient_id")
+    if patient_id:
+        await _owns_patient(user, patient_id)
+    if access_user.get("patient_id") and patient_id != access_user.get("patient_id"):
+        raise HTTPException(
+            status_code=403,
+            detail="Access profile is assigned to another patient",
+        )
+
+    access_token = secrets.token_urlsafe(32)
+    expires_at = now_utc() + timedelta(hours=12)
+
+    await db.access_sessions.delete_many(
+        {
+            "access_user_id": access_user["id"],
+            "owner_id": user["user_id"],
+        }
+    )
+    await db.access_sessions.insert_one({
+        "id": uid("access_session"),
+        "access_token": access_token,
+        "owner_id": user["user_id"],
+        "access_user_id": access_user["id"],
+        "patient_id": patient_id,
+        "created_at": now_utc().isoformat(),
+        "last_activity_at": now_utc().isoformat(),
+        "expires_at": expires_at.isoformat(),
+    })
+    await db.access_users.update_one(
+        {"id": access_user["id"]},
+        {
+            "$set": {
+                "failed_attempts": 0,
+                "locked_until": None,
+                "last_login_at": now_utc().isoformat(),
+            }
+        },
+    )
+    await _write_audit_log(
+        owner_id=user["user_id"],
+        action="access_login",
+        access_user=access_user,
+        patient_id=patient_id,
+        target_type="access_session",
+    )
+    return {
+        "access_token": access_token,
+        "expires_at": expires_at.isoformat(),
+        "patient_id": patient_id,
+        "access_user": _public_access_user(access_user),
+    }
+
+
+@api_router.post("/access/logout")
+async def access_logout(
+    access=Depends(get_current_access_session),
+):
+    token = access["session"]["access_token"]
+    await db.access_sessions.delete_one({"access_token": token})
+    await _write_audit_log(
+        owner_id=access["owner"]["user_id"],
+        action="access_logout",
+        access_user=access["access_user"],
+        patient_id=access.get("patient_id"),
+        target_type="access_session",
+        target_id=access["session"].get("id"),
+    )
+    return {"ok": True}
+
+
+@api_router.get("/access/me")
+async def access_me(
+    access=Depends(get_current_access_session),
+):
+    return {
+        "patient_id": access.get("patient_id"),
+        "access_user": _public_access_user(access["access_user"]),
+        "expires_at": access["session"].get("expires_at"),
+    }
+
+
+@api_router.put("/access/active-patient")
+async def set_active_patient(
+    body: ActivePatientRequest,
+    access=Depends(get_current_access_session),
+):
+    await _owns_patient(access["owner"], body.patient_id)
+
+    assigned_patient_id = access["access_user"].get("patient_id")
+    if assigned_patient_id and assigned_patient_id != body.patient_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Access profile is assigned to another patient",
+        )
+
+    await db.access_sessions.update_one(
+        {"access_token": access["session"]["access_token"]},
+        {
+            "$set": {
+                "patient_id": body.patient_id,
+                "last_activity_at": now_utc().isoformat(),
+            }
+        },
+    )
+    await _write_audit_log(
+        owner_id=access["owner"]["user_id"],
+        action="active_patient_changed",
+        access_user=access["access_user"],
+        patient_id=body.patient_id,
+        target_type="patient",
+        target_id=body.patient_id,
+    )
+    return {"ok": True, "patient_id": body.patient_id}
+
+
+@api_router.post("/access/biometric")
+async def enroll_biometric(
+    body: BiometricEnrollmentRequest,
+    user=Depends(get_current_user),
+):
+    access_user = await db.access_users.find_one(
+        {
+            "id": body.access_user_id,
+            "owner_id": user["user_id"],
+        },
+        {"_id": 0},
+    )
+    if not access_user:
+        raise HTTPException(status_code=404, detail="Access user not found")
+
+    devices = set(access_user.get("biometric_devices", []))
+    if body.enabled:
+        devices.add(body.device_id)
+    else:
+        devices.discard(body.device_id)
+
+    await db.access_users.update_one(
+        {"id": body.access_user_id, "owner_id": user["user_id"]},
+        {
+            "$set": {
+                "biometric_devices": sorted(devices),
+                "updated_at": now_utc().isoformat(),
+            }
+        },
+    )
+    return {
+        "ok": True,
+        "enabled": body.enabled,
+        "device_id": body.device_id,
+    }
+
+
+@api_router.post("/access/biometric-login")
+async def biometric_login(
+    body: AccessBiometricRequest,
+    user=Depends(get_current_user),
+):
+    access_user = await db.access_users.find_one(
+        {
+            "id": body.access_user_id,
+            "owner_id": user["user_id"],
+            "active": True,
+        },
+        {"_id": 0},
+    )
+    if not access_user:
+        raise HTTPException(status_code=404, detail="Access user not found")
+
+    if body.device_id not in access_user.get("biometric_devices", []):
+        raise HTTPException(
+            status_code=403,
+            detail="Biometric login is not enabled for this device",
+        )
+
+    patient_id = body.patient_id or access_user.get("patient_id")
+    if patient_id:
+        await _owns_patient(user, patient_id)
+
+    access_token = secrets.token_urlsafe(32)
+    expires_at = now_utc() + timedelta(hours=12)
+    await db.access_sessions.insert_one({
+        "id": uid("access_session"),
+        "access_token": access_token,
+        "owner_id": user["user_id"],
+        "access_user_id": access_user["id"],
+        "patient_id": patient_id,
+        "created_at": now_utc().isoformat(),
+        "last_activity_at": now_utc().isoformat(),
+        "expires_at": expires_at.isoformat(),
+        "authentication_method": "biometric",
+    })
+    await _write_audit_log(
+        owner_id=user["user_id"],
+        action="access_biometric_login",
+        access_user=access_user,
+        patient_id=patient_id,
+        target_type="access_session",
+    )
+    return {
+        "access_token": access_token,
+        "expires_at": expires_at.isoformat(),
+        "patient_id": patient_id,
+        "access_user": _public_access_user(access_user),
+    }
+
+
+@api_router.get("/audit-log")
+async def list_audit_log(
+    patient_id: Optional[str] = None,
+    limit: int = 200,
+    user=Depends(get_current_user),
+):
+    query = {"owner_id": user["user_id"]}
+    if patient_id:
+        await _owns_patient(user, patient_id)
+        query["patient_id"] = patient_id
+
+    safe_limit = max(1, min(limit, 1000))
+    docs = await db.audit_logs.find(
+        query,
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(safe_limit)
+    return docs
 
 
 # ---------------- Patients ----------------
@@ -455,8 +1076,10 @@ async def add_patient(
 ):
     patient_data = body.model_dump()
 
+    patient_id = uid("pat")
     doc = {
-        "_id": uid("pat"),
+        "_id": patient_id,
+        "id": patient_id,
         "owner_id": user["user_id"],
         **patient_data,
         "is_self": False,
@@ -505,8 +1128,10 @@ async def add_relative(
 ):
     relative_data = body.model_dump()
 
+    relative_id = uid("rel")
     doc = {
-        "_id": uid("rel"),
+        "_id": relative_id,
+        "id": relative_id,
         "owner_id": user["user_id"],
         **relative_data,
         "created_at": now_utc().isoformat(),
@@ -625,8 +1250,10 @@ async def add_doctor(
 ):
     doctor_data = body.model_dump()
 
+    doctor_id = uid("doc")
     doc = {
-        "_id": uid("doc"),
+        "_id": doctor_id,
+        "id": doctor_id,
         "owner_id": user["user_id"],
         **doctor_data,
         "created_at": now_utc().isoformat(),
@@ -665,8 +1292,14 @@ async def list_meds(patient_id: str, user=Depends(get_current_user)):
 
 
 @api_router.post("/patients/{patient_id}/medications")
-async def add_med(patient_id: str, body: MedicationCreate, user=Depends(get_current_user)):
+async def add_med(
+    patient_id: str,
+    body: MedicationCreate,
+    user=Depends(get_current_user),
+    access=Depends(require_write_access),
+):
     await _owns_patient(user, patient_id)
+    await _assert_access_patient(access, patient_id)
     doc = {
         "id": uid("med"),
         "patient_id": patient_id,
@@ -683,16 +1316,39 @@ async def add_med(patient_id: str, body: MedicationCreate, user=Depends(get_curr
     }
     await db.medications.insert_one(doc)
     doc.pop("_id", None)
+    await _write_audit_log(
+        owner_id=user["user_id"],
+        action="medication_created",
+        access_user=access["access_user"],
+        patient_id=patient_id,
+        target_type="medication",
+        target_id=doc["id"],
+        details={"name": doc["name"], "dosage": doc["dosage"]},
+    )
     return doc
 
 
 @api_router.delete("/medications/{med_id}")
-async def delete_med(med_id: str, user=Depends(get_current_user)):
+async def delete_med(
+    med_id: str,
+    user=Depends(get_current_user),
+    access=Depends(require_write_access),
+):
     med = await db.medications.find_one({"id": med_id}, {"_id": 0})
     if med:
         await _owns_patient(user, med["patient_id"])
+        await _assert_access_patient(access, med["patient_id"])
         await db.medications.delete_one({"id": med_id})
         await db.intakes.delete_many({"medication_id": med_id})
+        await _write_audit_log(
+            owner_id=user["user_id"],
+            action="medication_deleted",
+            access_user=access["access_user"],
+            patient_id=med["patient_id"],
+            target_type="medication",
+            target_id=med_id,
+            details={"name": med.get("name"), "dosage": med.get("dosage")},
+        )
     return {"ok": True}
 
 
@@ -740,8 +1396,13 @@ async def schedule(patient_id: str, date_str: str, user=Depends(get_current_user
 
 # ---------------- Intake actions ----------------
 @api_router.post("/intake")
-async def record_intake(body: IntakeAction, user=Depends(get_current_user)):
+async def record_intake(
+    body: IntakeAction,
+    user=Depends(get_current_user),
+    access=Depends(require_write_access),
+):
     await _owns_patient(user, body.patient_id)
+    await _assert_access_patient(access, body.patient_id)
     if body.status not in ("taken", "missed"):
         raise HTTPException(status_code=400, detail="Invalid status")
     key = {
@@ -756,6 +1417,19 @@ async def record_intake(body: IntakeAction, user=Depends(get_current_user)):
         "taken_at": now_utc().isoformat() if body.status == "taken" else None,
     }
     await db.intakes.update_one(key, {"$set": doc}, upsert=True)
+    await _write_audit_log(
+        owner_id=user["user_id"],
+        action="intake_recorded",
+        access_user=access["access_user"],
+        patient_id=body.patient_id,
+        target_type="intake",
+        target_id=body.medication_id,
+        details={
+            "status": body.status,
+            "scheduled_date": body.scheduled_date,
+            "scheduled_time": body.scheduled_time,
+        },
+    )
     return {"ok": True, **doc}
 
 
@@ -957,8 +1631,14 @@ class DeviceAction(BaseModel):
 
 
 @api_router.post("/patients/{patient_id}/device/action")
-async def device_action(patient_id: str, body: DeviceAction, user=Depends(get_current_user)):
+async def device_action(
+    patient_id: str,
+    body: DeviceAction,
+    user=Depends(get_current_user),
+    access=Depends(require_write_access),
+):
     await _owns_patient(user, patient_id)
+    await _assert_access_patient(access, patient_id)
     state = await db.device_state.find_one({"patient_id": patient_id}, {"_id": 0})
     if not state:
         raise HTTPException(status_code=404, detail="Kein Gerät")
@@ -1208,9 +1888,27 @@ async def root():
 
 # ---------------- Allergy profile ----------------
 @api_router.put("/patients/{patient_id}/allergies")
-async def update_allergies(patient_id: str, body: AllergyUpdate, user=Depends(get_current_user)):
+async def update_allergies(
+    patient_id: str,
+    body: AllergyUpdate,
+    user=Depends(get_current_user),
+    access=Depends(require_write_access),
+):
     await _owns_patient(user, patient_id)
-    await db.patients.update_one({"id": patient_id}, {"$set": {"allergies": body.allergies}})
+    await _assert_access_patient(access, patient_id)
+    await db.patients.update_one(
+        {"id": patient_id},
+        {"$set": {"allergies": body.allergies, "updated_at": now_utc().isoformat()}},
+    )
+    await _write_audit_log(
+        owner_id=user["user_id"],
+        action="allergies_updated",
+        access_user=access["access_user"],
+        patient_id=patient_id,
+        target_type="patient",
+        target_id=patient_id,
+        details={"allergies": body.allergies},
+    )
     return {"ok": True, "allergies": body.allergies}
 
 
@@ -1492,6 +2190,14 @@ async def startup():
     await db.users.create_index("user_id", unique=True)
     await db.user_sessions.create_index("session_token", unique=True)
     await db.user_sessions.create_index("user_id")
+    await db.access_users.create_index("id", unique=True)
+    await db.access_users.create_index("owner_id")
+    await db.access_sessions.create_index("access_token", unique=True)
+    await db.access_sessions.create_index("owner_id")
+    await db.access_sessions.create_index("access_user_id")
+    await db.audit_logs.create_index("owner_id")
+    await db.audit_logs.create_index("patient_id")
+    await db.audit_logs.create_index("created_at")
 
 
 @app.on_event("shutdown")
