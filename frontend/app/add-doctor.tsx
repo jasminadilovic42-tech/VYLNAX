@@ -1,14 +1,14 @@
 import React, { useState } from "react";
 import {
-  View,
-  Text,
-  TextInput,
-  ScrollView,
-  StyleSheet,
-  Pressable,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
   Switch,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -17,6 +17,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "@/src/api";
 import { colors, spacing, radius, font } from "@/src/theme";
 import { PrimaryButton } from "@/src/components/ui";
+import { useAuth } from "@/src/context/AuthContext";
+import { useApp } from "@/src/context/AppContext";
 
 const SPECIALIZATIONS = [
   "Allgemeinmedizin",
@@ -38,9 +40,18 @@ const CONTACT_TYPES = [
   "Notfallkontakt",
 ];
 
+function normalizeRole(role?: string | null): string {
+  return String(role || "").trim().toLowerCase();
+}
+
 export default function AddDoctor() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const { activePatient } = useApp();
+
+  const role = normalizeRole(user?.role);
+  const canManageDoctors = role === "caregiver";
 
   const [title, setTitle] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -82,6 +93,18 @@ export default function AddDoctor() {
   const save = async () => {
     setError("");
 
+    if (!canManageDoctors) {
+      setError(
+        "Keine Berechtigung. Nur Pflegekräfte dürfen Ärzte anlegen oder bearbeiten."
+      );
+      return;
+    }
+
+    if (!activePatient?.id) {
+      setError("Bitte wählen Sie zuerst eine betreute Person aus.");
+      return;
+    }
+
     if (!firstName.trim()) {
       setError("Bitte geben Sie den Vornamen ein.");
       return;
@@ -109,12 +132,16 @@ export default function AddDoctor() {
       return;
     }
 
+    if (saving) return;
+
     setSaving(true);
 
     try {
       await api("/doctors", {
         method: "POST",
         body: {
+          patient_id: activePatient.id,
+
           title: title.trim() || null,
           first_name: firstName.trim(),
           last_name: lastName.trim(),
@@ -157,15 +184,51 @@ export default function AddDoctor() {
       });
 
       router.back();
-    } catch (err) {
-      console.log("Doctor save error:", err);
-      setError(
-        "Speichern fehlgeschlagen. Bitte prüfen Sie die Verbindung und versuchen Sie es erneut."
-      );
+    } catch (err: any) {
+      console.error("Doctor save error:", err);
+
+      const message =
+        err?.message === "Patient not found"
+          ? "Die ausgewählte betreute Person wurde nicht gefunden."
+          : err?.message === "BACKEND_TIMEOUT"
+            ? "Der Server antwortet nicht. Bitte versuchen Sie es erneut."
+            : "Speichern fehlgeschlagen. Bitte prüfen Sie die Verbindung und versuchen Sie es erneut.";
+
+      setError(message);
     } finally {
       setSaving(false);
     }
   };
+
+  if (user && !canManageDoctors) {
+    return (
+      <View
+        style={[
+          styles.deniedContainer,
+          {
+            paddingTop: insets.top + spacing.xl,
+            paddingBottom: insets.bottom + spacing.xl,
+          },
+        ]}
+      >
+        <Ionicons name="lock-closed" size={52} color={colors.error} />
+
+        <Text style={styles.deniedTitle}>Kein Bearbeitungszugriff</Text>
+
+        <Text style={styles.deniedText}>
+          Ärzte dürfen nur von einer berechtigten Pflegekraft angelegt oder
+          bearbeitet werden.
+        </Text>
+
+        <PrimaryButton
+          label="Zurück"
+          icon="arrow-back"
+          onPress={() => router.back()}
+          style={styles.deniedButton}
+        />
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -190,7 +253,9 @@ export default function AddDoctor() {
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>Hausarzt hinzufügen</Text>
           <Text style={styles.headerSubtitle}>
-            Praxisdaten und medizinische Berechtigungen
+            {activePatient?.name
+              ? `Für: ${activePatient.name}`
+              : "Bitte zuerst betreute Person wählen"}
           </Text>
         </View>
 
@@ -202,10 +267,7 @@ export default function AddDoctor() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <SectionHeader
-          icon="person-outline"
-          title="Persönliche Daten"
-        />
+        <SectionHeader icon="person-outline" title="Persönliche Daten" />
 
         <Field
           label="Titel"
@@ -232,7 +294,6 @@ export default function AddDoctor() {
         />
 
         <Text style={styles.label}>Fachrichtung *</Text>
-
         <View style={styles.chipContainer}>
           {SPECIALIZATIONS.map((item) => (
             <ChoiceChip
@@ -245,7 +306,6 @@ export default function AddDoctor() {
         </View>
 
         <Text style={styles.label}>Art des ärztlichen Kontakts</Text>
-
         <View style={styles.chipContainer}>
           {CONTACT_TYPES.map((item) => (
             <ChoiceChip
@@ -257,10 +317,7 @@ export default function AddDoctor() {
           ))}
         </View>
 
-        <SectionHeader
-          icon="business-outline"
-          title="Arztpraxis"
-        />
+        <SectionHeader icon="business-outline" title="Arztpraxis" />
 
         <Field
           label="Name der Arztpraxis *"
@@ -336,10 +393,7 @@ export default function AddDoctor() {
           multiline
         />
 
-        <SectionHeader
-          icon="star-outline"
-          title="Verantwortung"
-        />
+        <SectionHeader icon="star-outline" title="Verantwortung" />
 
         <ToggleRow
           title="Als Hausarzt festlegen"
@@ -416,10 +470,7 @@ export default function AddDoctor() {
           onValueChange={setCanContactCaregiver}
         />
 
-        <SectionHeader
-          icon="notifications-outline"
-          title="Benachrichtigungen"
-        />
+        <SectionHeader icon="notifications-outline" title="Benachrichtigungen" />
 
         <ToggleRow
           title="Push-Benachrichtigungen"
@@ -448,7 +499,6 @@ export default function AddDoctor() {
         />
 
         <Text style={styles.label}>Notizen</Text>
-
         <TextInput
           testID="doctor-notes-input"
           value={notes}
@@ -476,7 +526,7 @@ export default function AddDoctor() {
           label="Hausarzt speichern"
           icon="checkmark-circle-outline"
           loading={saving}
-          onPress={save}
+          onPress={() => void save()}
           style={styles.saveButton}
         />
 
@@ -523,10 +573,7 @@ function Field({
         autoCapitalize={autoCapitalize}
         multiline={multiline}
         textAlignVertical={multiline ? "top" : "center"}
-        style={[
-          styles.input,
-          multiline && styles.multilineInput,
-        ]}
+        style={[styles.input, multiline && styles.multilineInput]}
       />
     </>
   );
@@ -543,20 +590,12 @@ type SectionHeaderProps = {
   title: string;
 };
 
-function SectionHeader({
-  icon,
-  title,
-}: SectionHeaderProps) {
+function SectionHeader({ icon, title }: SectionHeaderProps) {
   return (
     <View style={styles.sectionHeader}>
       <View style={styles.sectionIcon}>
-        <Ionicons
-          name={icon}
-          size={21}
-          color={colors.brandPrimary}
-        />
+        <Ionicons name={icon} size={21} color={colors.brandPrimary} />
       </View>
-
       <Text style={styles.sectionTitle}>{title}</Text>
     </View>
   );
@@ -568,24 +607,14 @@ type ChoiceChipProps = {
   onPress: () => void;
 };
 
-function ChoiceChip({
-  label,
-  selected,
-  onPress,
-}: ChoiceChipProps) {
+function ChoiceChip({ label, selected, onPress }: ChoiceChipProps) {
   return (
     <Pressable
       onPress={onPress}
-      style={[
-        styles.chip,
-        selected && styles.chipSelected,
-      ]}
+      style={[styles.chip, selected && styles.chipSelected]}
     >
       <Text
-        style={[
-          styles.chipText,
-          selected && styles.chipTextSelected,
-        ]}
+        style={[styles.chipText, selected && styles.chipTextSelected]}
       >
         {label}
       </Text>
@@ -610,10 +639,7 @@ function ToggleRow({
     <View style={styles.toggleRow}>
       <View style={styles.toggleTextContainer}>
         <Text style={styles.toggleTitle}>{title}</Text>
-
-        <Text style={styles.toggleDescription}>
-          {description}
-        </Text>
+        <Text style={styles.toggleDescription}>{description}</Text>
       </View>
 
       <Switch
@@ -634,7 +660,31 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.surface,
   },
-
+  deniedContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.xl,
+    backgroundColor: colors.surface,
+  },
+  deniedTitle: {
+    color: colors.onSurface,
+    fontSize: 22,
+    fontWeight: "800",
+    textAlign: "center",
+    marginTop: spacing.lg,
+  },
+  deniedText: {
+    color: colors.onSurfaceSecondary,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+    marginTop: spacing.sm,
+  },
+  deniedButton: {
+    alignSelf: "stretch",
+    marginTop: spacing.xl,
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -644,43 +694,37 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     backgroundColor: colors.surface,
   },
-
   headerButton: {
     width: 44,
     height: 44,
     alignItems: "center",
     justifyContent: "center",
   },
-
   headerCenter: {
     flex: 1,
     alignItems: "center",
   },
-
   headerTitle: {
     color: colors.onSurface,
     fontSize: font.lg,
     fontWeight: "800",
   },
-
   headerSubtitle: {
     color: colors.onSurfaceSecondary,
     fontSize: 12,
     marginTop: 2,
+    textAlign: "center",
   },
-
   content: {
     padding: spacing.lg,
     paddingBottom: spacing.xl * 2,
   },
-
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: spacing.lg,
     marginBottom: spacing.md,
   },
-
   sectionIcon: {
     width: 38,
     height: 38,
@@ -690,13 +734,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSecondary,
     marginRight: spacing.sm,
   },
-
   sectionTitle: {
     color: colors.onSurface,
     fontSize: 18,
     fontWeight: "800",
   },
-
   label: {
     color: colors.onSurfaceSecondary,
     fontSize: 13,
@@ -704,7 +746,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     marginBottom: spacing.sm,
   },
-
   input: {
     minHeight: 52,
     color: colors.onSurface,
@@ -715,23 +756,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     fontSize: 15,
   },
-
   multilineInput: {
     minHeight: 86,
     paddingTop: spacing.md,
   },
-
   notesInput: {
     minHeight: 120,
     paddingTop: spacing.md,
   },
-
   chipContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.sm,
   },
-
   chip: {
     borderWidth: 1,
     borderColor: colors.border,
@@ -740,22 +777,18 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     backgroundColor: colors.surfaceSecondary,
   },
-
   chipSelected: {
     borderColor: colors.brandPrimary,
     backgroundColor: colors.brandPrimary,
   },
-
   chipText: {
     color: colors.onSurfaceSecondary,
     fontSize: 13,
     fontWeight: "700",
   },
-
   chipTextSelected: {
     color: "#FFFFFF",
   },
-
   toggleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -766,25 +799,21 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginBottom: spacing.sm,
   },
-
   toggleTextContainer: {
     flex: 1,
     paddingRight: spacing.md,
   },
-
   toggleTitle: {
     color: colors.onSurface,
     fontSize: 15,
     fontWeight: "700",
     marginBottom: 4,
   },
-
   toggleDescription: {
     color: colors.onSurfaceSecondary,
     fontSize: 12,
     lineHeight: 17,
   },
-
   errorBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -795,7 +824,6 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginTop: spacing.lg,
   },
-
   errorText: {
     flex: 1,
     color: colors.error,
@@ -803,11 +831,9 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginLeft: spacing.sm,
   },
-
   saveButton: {
     marginTop: spacing.xl,
   },
-
   requiredInfo: {
     color: colors.onSurfaceSecondary,
     fontSize: 12,

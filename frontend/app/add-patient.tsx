@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "@/src/api";
 import { colors, spacing, radius, font } from "@/src/theme";
 import { PrimaryButton } from "@/src/components/ui";
+import { useAuth } from "@/src/context/AuthContext";
 
 const GENDERS = ["Weiblich", "Männlich", "Divers"];
 
@@ -126,9 +127,19 @@ const CONTINENCE_TYPES = [
   "Colostoma / Ileostoma",
 ];
 
+function normalizeRole(role?: string | null): string {
+  return String(role || "")
+    .trim()
+    .toLowerCase();
+}
+
 export default function AddPatient() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+
+  const role = normalizeRole(user?.role);
+  const canAddPatient = role === "caregiver";
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -223,6 +234,13 @@ export default function AddPatient() {
   const save = async () => {
     setError("");
 
+    if (!canAddPatient) {
+      setError(
+        "Keine Berechtigung. Nur Pflegekräfte dürfen neue Patienten anlegen."
+      );
+      return;
+    }
+
     if (!firstName.trim()) {
       setError("Bitte geben Sie den Vornamen ein.");
       return;
@@ -240,6 +258,10 @@ export default function AddPatient() {
 
     if (!careGrade) {
       setError("Bitte wählen Sie den Pflegegrad.");
+      return;
+    }
+
+    if (saving) {
       return;
     }
 
@@ -362,6 +384,41 @@ export default function AddPatient() {
       setSaving(false);
     }
   };
+
+  if (user && !canAddPatient) {
+    return (
+      <View
+        style={[
+          styles.deniedContainer,
+          {
+            paddingTop: insets.top + spacing.xl,
+            paddingBottom: insets.bottom + spacing.xl,
+          },
+        ]}
+      >
+        <Ionicons
+          name="lock-closed"
+          size={52}
+          color={colors.error}
+        />
+
+        <Text style={styles.deniedTitle}>
+          Kein Bearbeitungszugriff
+        </Text>
+
+        <Text style={styles.deniedText}>
+          Neue Patienten dürfen nur von einer Pflegekraft angelegt werden.
+        </Text>
+
+        <PrimaryButton
+          label="Zurück"
+          icon="arrow-back"
+          onPress={() => router.back()}
+          style={styles.deniedButton}
+        />
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -996,7 +1053,7 @@ export default function AddPatient() {
           label="Patient speichern"
           icon="checkmark-circle-outline"
           loading={saving}
-          onPress={save}
+          onPress={() => void save()}
           style={styles.saveButton}
         />
 
@@ -1182,6 +1239,35 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.surface,
+  },
+
+  deniedContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.xl,
+    backgroundColor: colors.surface,
+  },
+
+  deniedTitle: {
+    color: colors.onSurface,
+    fontSize: 22,
+    fontWeight: "800",
+    textAlign: "center",
+    marginTop: spacing.lg,
+  },
+
+  deniedText: {
+    color: colors.onSurfaceSecondary,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+    marginTop: spacing.sm,
+  },
+
+  deniedButton: {
+    alignSelf: "stretch",
+    marginTop: spacing.xl,
   },
 
   header: {

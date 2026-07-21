@@ -11,10 +11,22 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { colors, spacing, radius, font } from "@/src/theme";
+import { useAuth } from "@/src/context/AuthContext";
+import { PrimaryButton } from "@/src/components/ui";
+
+function normalizeRole(role?: string | null): string {
+  return String(role || "")
+    .trim()
+    .toLowerCase();
+}
 
 export default function AddPerson() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+
+  const role = normalizeRole(user?.role);
+  const canAddPerson = role === "caregiver";
 
   const options = [
     {
@@ -42,6 +54,41 @@ export default function AddPerson() {
       route: "/add-doctor",
     },
   ] as const;
+
+  if (user && !canAddPerson) {
+    return (
+      <View
+        style={[
+          styles.deniedContainer,
+          {
+            paddingTop: insets.top + spacing.xl,
+            paddingBottom: insets.bottom + spacing.xl,
+          },
+        ]}
+      >
+        <Ionicons
+          name="lock-closed"
+          size={52}
+          color={colors.error}
+        />
+
+        <Text style={styles.deniedTitle}>
+          Kein Bearbeitungszugriff
+        </Text>
+
+        <Text style={styles.deniedText}>
+          Nur Pflegekräfte dürfen Patienten, Angehörige, Pflegekräfte oder Ärzte hinzufügen.
+        </Text>
+
+        <PrimaryButton
+          label="Zurück"
+          icon="arrow-back"
+          onPress={() => router.back()}
+          style={styles.deniedButton}
+        />
+      </View>
+    );
+  }
 
   return (
     <View
@@ -115,10 +162,39 @@ export default function AddPerson() {
   );
 }
 
- const styles = StyleSheet.create({
+const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.surface,
+  },
+
+  deniedContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.xl,
+    backgroundColor: colors.surface,
+  },
+
+  deniedTitle: {
+    color: colors.onSurface,
+    fontSize: 22,
+    fontWeight: "800",
+    textAlign: "center",
+    marginTop: spacing.lg,
+  },
+
+  deniedText: {
+    color: colors.onSurfaceSecondary,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+    marginTop: spacing.sm,
+  },
+
+  deniedButton: {
+    alignSelf: "stretch",
+    marginTop: spacing.xl,
   },
 
   header: {

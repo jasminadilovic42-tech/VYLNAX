@@ -17,6 +17,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "@/src/api";
 import { colors, spacing, radius, font } from "@/src/theme";
 import { PrimaryButton } from "@/src/components/ui";
+import { useAuth } from "@/src/context/AuthContext";
+import { useApp } from "@/src/context/AppContext";
 
 const PROFESSIONAL_ROLES = [
   "Pflegefachkraft",
@@ -39,9 +41,20 @@ const WORK_AREAS = [
   "Andere",
 ];
 
+function normalizeRole(role?: string | null): string {
+  return String(role || "")
+    .trim()
+    .toLowerCase();
+}
+
 export default function AddCaregiver() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const { activePatient } = useApp();
+
+  const role = normalizeRole(user?.role);
+  const canManageCaregivers = role === "caregiver";
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -79,6 +92,18 @@ export default function AddCaregiver() {
   const save = async () => {
     setError("");
 
+    if (!activePatient?.id) {
+      setError("Bitte wählen Sie zuerst eine betreute Person aus.");
+      return;
+    }
+
+    if (!canManageCaregivers) {
+      setError(
+        "Keine Berechtigung. Nur Pflegekräfte dürfen weitere Pflegekräfte anlegen oder bearbeiten."
+      );
+      return;
+    }
+
     if (!firstName.trim()) {
       setError("Bitte geben Sie den Vornamen ein.");
       return;
@@ -101,12 +126,17 @@ export default function AddCaregiver() {
       return;
     }
 
+    if (saving) {
+      return;
+    }
+
     setSaving(true);
 
     try {
       await api("/caregivers", {
         method: "POST",
         body: {
+          patient_id: activePatient.id,
           first_name: firstName.trim(),
           last_name: lastName.trim(),
           professional_role: professionalRole,
@@ -154,6 +184,41 @@ export default function AddCaregiver() {
       setSaving(false);
     }
   };
+
+  if (user && !canManageCaregivers) {
+    return (
+      <View
+        style={[
+          styles.deniedContainer,
+          {
+            paddingTop: insets.top + spacing.xl,
+            paddingBottom: insets.bottom + spacing.xl,
+          },
+        ]}
+      >
+        <Ionicons
+          name="lock-closed"
+          size={52}
+          color={colors.error}
+        />
+
+        <Text style={styles.deniedTitle}>
+          Kein Bearbeitungszugriff
+        </Text>
+
+        <Text style={styles.deniedText}>
+          Pflegekräfte dürfen nur von einer bereits berechtigten Pflegekraft angelegt oder bearbeitet werden.
+        </Text>
+
+        <PrimaryButton
+          label="Zurück"
+          icon="arrow-back"
+          onPress={() => router.back()}
+          style={styles.deniedButton}
+        />
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -443,7 +508,7 @@ export default function AddCaregiver() {
           label="Pflegekraft speichern"
           icon="checkmark-circle-outline"
           loading={saving}
-          onPress={save}
+          onPress={() => void save()}
           style={styles.saveButton}
         />
 
@@ -600,6 +665,35 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.surface,
+  },
+
+  deniedContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.xl,
+    backgroundColor: colors.surface,
+  },
+
+  deniedTitle: {
+    color: colors.onSurface,
+    fontSize: 22,
+    fontWeight: "800",
+    textAlign: "center",
+    marginTop: spacing.lg,
+  },
+
+  deniedText: {
+    color: colors.onSurfaceSecondary,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+    marginTop: spacing.sm,
+  },
+
+  deniedButton: {
+    alignSelf: "stretch",
+    marginTop: spacing.xl,
   },
 
   header: {

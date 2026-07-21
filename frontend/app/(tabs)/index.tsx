@@ -22,11 +22,25 @@ type Item = {
   status: string;
 };
 
+function normalizeRole(role?: string | null): string {
+  return String(role || "")
+    .trim()
+    .toLowerCase();
+}
+
 export default function Dashboard() {
   const { user } = useAuth();
   const { activePatient } = useApp();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+
+  const role = normalizeRole(user?.role);
+  const canAddMedication = role === "caregiver" || role === "doctor";
+  const canConfirmIntake = role === "caregiver" || role === "patient";
+  const canUseDevice = role === "caregiver" || role === "patient";
+  const canOpenSafety = role !== "relative";
+  const canUseAssistant = true;
+
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -56,7 +70,7 @@ export default function Dashboard() {
   );
 
   const confirm = async (it: Item) => {
-    if (!activePatient) return;
+    if (!activePatient || !canConfirmIntake || confirming) return;
     setConfirming(it.medication_id + it.time);
     if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     try {
@@ -116,14 +130,16 @@ export default function Dashboard() {
                     <View style={[styles.pill, { backgroundColor: next.color }]} />
                     <Text style={styles.heroMed}>{next.name} · {next.dosage}</Text>
                   </View>
-                  <PrimaryButton
-                    testID="confirm-next-dose"
-                    label="Einnahme bestätigen"
-                    icon="checkmark-circle"
-                    loading={confirming === next.medication_id + next.time}
-                    onPress={() => confirm(next)}
-                    style={{ marginTop: spacing.md, backgroundColor: "#fff" }}
-                  />
+                  {canConfirmIntake && (
+                    <PrimaryButton
+                      testID="confirm-next-dose"
+                      label="Einnahme bestätigen"
+                      icon="checkmark-circle"
+                      loading={confirming === next.medication_id + next.time}
+                      onPress={() => void confirm(next)}
+                      style={{ marginTop: spacing.md, backgroundColor: "#fff" }}
+                    />
+                  )}
                 </>
               ) : (
                 <>
@@ -135,22 +151,70 @@ export default function Dashboard() {
 
             {/* Quick actions */}
             <View style={styles.quickRow}>
-              <Pressable testID="quick-device" onPress={() => router.push("/device")} style={styles.quickCard}>
-                <Ionicons name="hardware-chip" size={22} color={colors.brandPrimary} />
-                <Text style={styles.quickText}>Gerät</Text>
-              </Pressable>
-              <Pressable testID="quick-safety" onPress={() => router.push("/safety")} style={styles.quickCard}>
-                <Ionicons name="shield-checkmark" size={22} color={colors.brandPrimary} />
-                <Text style={styles.quickText}>Sicherheit</Text>
-              </Pressable>
-              <Pressable testID="quick-add-med" onPress={() => router.push({ pathname: "/add-medication", params: { patientId: activePatient?.id } })} style={styles.quickCard}>
-                <Ionicons name="add-circle" size={22} color={colors.brandPrimary} />
-                <Text style={styles.quickText}>Medikament</Text>
-              </Pressable>
-              <Pressable testID="quick-assistant" onPress={() => router.push("/(tabs)/assistant")} style={styles.quickCard}>
-                <Ionicons name="sparkles" size={22} color={colors.brandPrimary} />
-                <Text style={styles.quickText}>KI-Hilfe</Text>
-              </Pressable>
+              {canUseDevice && (
+                <Pressable
+                  testID="quick-device"
+                  onPress={() => router.push("/device")}
+                  style={styles.quickCard}
+                >
+                  <Ionicons
+                    name="hardware-chip"
+                    size={22}
+                    color={colors.brandPrimary}
+                  />
+                  <Text style={styles.quickText}>Gerät</Text>
+                </Pressable>
+              )}
+
+              {canOpenSafety && (
+                <Pressable
+                  testID="quick-safety"
+                  onPress={() => router.push("/safety")}
+                  style={styles.quickCard}
+                >
+                  <Ionicons
+                    name="shield-checkmark"
+                    size={22}
+                    color={colors.brandPrimary}
+                  />
+                  <Text style={styles.quickText}>Sicherheit</Text>
+                </Pressable>
+              )}
+
+              {canAddMedication && (
+                <Pressable
+                  testID="quick-add-med"
+                  onPress={() =>
+                    router.push({
+                      pathname: "/add-medication",
+                      params: { patientId: activePatient?.id },
+                    })
+                  }
+                  style={styles.quickCard}
+                >
+                  <Ionicons
+                    name="add-circle"
+                    size={22}
+                    color={colors.brandPrimary}
+                  />
+                  <Text style={styles.quickText}>Medikament</Text>
+                </Pressable>
+              )}
+
+              {canUseAssistant && (
+                <Pressable
+                  testID="quick-assistant"
+                  onPress={() => router.push("/(tabs)/assistant")}
+                  style={styles.quickCard}
+                >
+                  <Ionicons
+                    name="sparkles"
+                    size={22}
+                    color={colors.brandPrimary}
+                  />
+                  <Text style={styles.quickText}>KI-Hilfe</Text>
+                </Pressable>
+              )}
             </View>
 
             {/* Today status */}
@@ -170,14 +234,21 @@ export default function Dashboard() {
               <Card style={{ alignItems: "center", paddingVertical: spacing["2xl"] }}>
                 <Ionicons name="medkit-outline" size={40} color={colors.borderStrong} />
                 <Text style={styles.emptyT}>Noch keine Medikamente</Text>
-                <PrimaryButton
-                  testID="empty-add-med"
-                  label="Medikament hinzufügen"
-                  icon="add"
-                  variant="outline"
-                  onPress={() => router.push({ pathname: "/add-medication", params: { patientId: activePatient?.id } })}
-                  style={{ marginTop: spacing.md }}
-                />
+                {canAddMedication && (
+                  <PrimaryButton
+                    testID="empty-add-med"
+                    label="Medikament hinzufügen"
+                    icon="add"
+                    variant="outline"
+                    onPress={() =>
+                      router.push({
+                        pathname: "/add-medication",
+                        params: { patientId: activePatient?.id },
+                      })
+                    }
+                    style={{ marginTop: spacing.md }}
+                  />
+                )}
               </Card>
             ) : (
               items.map((it) => (
@@ -190,22 +261,39 @@ export default function Dashboard() {
                   </View>
                   {it.status === "taken" ? (
                     <StatusBadge status="taken" />
-                  ) : (
+                  ) : canConfirmIntake ? (
                     <Pressable
                       testID={`confirm-${it.medication_id}-${it.time}`}
-                      onPress={() => confirm(it)}
-                      style={styles.checkBtn}
+                      onPress={() => void confirm(it)}
+                      disabled={Boolean(confirming)}
+                      style={[
+                        styles.checkBtn,
+                        confirming && styles.checkBtnDisabled,
+                      ]}
                     >
                       {confirming === it.medication_id + it.time ? (
-                        <ActivityIndicator color={colors.brandPrimary} size="small" />
+                        <ActivityIndicator
+                          color={colors.brandPrimary}
+                          size="small"
+                        />
                       ) : (
                         <Ionicons
-                          name={it.status === "missed" ? "alert-circle" : "ellipse-outline"}
+                          name={
+                            it.status === "missed"
+                              ? "alert-circle"
+                              : "ellipse-outline"
+                          }
                           size={26}
-                          color={it.status === "missed" ? colors.error : colors.borderStrong}
+                          color={
+                            it.status === "missed"
+                              ? colors.error
+                              : colors.borderStrong
+                          }
                         />
                       )}
                     </Pressable>
+                  ) : (
+                    <StatusBadge status={it.status || "pending"} />
                   )}
                 </Card>
               ))
@@ -254,6 +342,7 @@ const styles = StyleSheet.create({
   medName: { fontSize: font.lg, fontWeight: "700", color: colors.onSurface },
   medDose: { fontSize: 13, color: colors.onSurfaceTertiary, marginTop: 2 },
   checkBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  checkBtnDisabled: { opacity: 0.5 },
   emptyT: { color: colors.onSurfaceSecondary, fontWeight: "600", marginTop: spacing.sm },
   quickRow: { flexDirection: "row", gap: spacing.md, marginTop: spacing.lg },
   quickCard: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", paddingVertical: spacing.lg, gap: 6 },

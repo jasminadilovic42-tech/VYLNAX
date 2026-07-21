@@ -16,12 +16,15 @@ import {
   colors,
   font,
   radius,
-  ROLES,
   spacing,
 } from "@/src/theme";
 import { api } from "@/src/api";
 import { useAuth } from "@/src/context/AuthContext";
 import { useApp } from "@/src/context/AppContext";
+import {
+  AccessUser,
+  useAccess,
+} from "@/src/context/AccessContext";
 import { Card } from "@/src/components/ui";
 import { SectionTitle } from "@/src/components/shared";
 
@@ -31,6 +34,7 @@ type BaseRecord = {
 };
 
 type Relative = BaseRecord & {
+  patient_id?: string;
   first_name?: string;
   last_name?: string;
   birth_date?: string | null;
@@ -46,6 +50,7 @@ type Relative = BaseRecord & {
 };
 
 type Caregiver = BaseRecord & {
+  patient_id?: string;
   first_name?: string;
   last_name?: string;
   professional_role?: string | null;
@@ -62,6 +67,7 @@ type Caregiver = BaseRecord & {
 };
 
 type Doctor = BaseRecord & {
+  patient_id?: string;
   title?: string | null;
   first_name?: string;
   last_name?: string;
@@ -128,8 +134,75 @@ function fullName(
   return value || fallback;
 }
 
+function accessRoleLabel(role?: string): string {
+  switch (String(role || "").toLowerCase()) {
+    case "patient":
+      return "Patient";
+    case "relative":
+      return "Angehörige/r";
+    case "caregiver":
+      return "Pflegekraft";
+    case "doctor":
+      return "Arzt";
+    default:
+      return role || "Benutzer";
+  }
+}
+
+function accessUserName(accessUser: AccessUser): string {
+  const value = String(
+    accessUser.name ||
+      [accessUser.first_name, accessUser.last_name]
+        .filter(Boolean)
+        .join(" ")
+  ).trim();
+
+  return value || "VYLNAX Benutzer";
+}
+
+function normalizeRole(role?: string | null): string {
+  return String(role || "")
+    .trim()
+    .toLowerCase();
+}
+
+function profileRoleLabel(role?: string | null): string {
+  switch (normalizeRole(role)) {
+    case "patient":
+      return "Patient:in";
+    case "relative":
+      return "Angehörige:r";
+    case "caregiver":
+      return "Pflegekraft";
+    case "doctor":
+      return "Hausarzt";
+    default:
+      return "Benutzer";
+  }
+}
+
+function profileRoleIcon(
+  role?: string | null
+): keyof typeof Ionicons.glyphMap {
+  switch (normalizeRole(role)) {
+    case "patient":
+      return "person";
+    case "relative":
+      return "people";
+    case "doctor":
+      return "medkit";
+    case "caregiver":
+      return "medical";
+    default:
+      return "person-circle";
+  }
+}
+
 export default function Profile() {
-  const { user, logout, setRole } = useAuth();
+  const { user, logout } = useAuth();
+
+  const role = normalizeRole(user?.role);
+  const canManageProfiles = role === "caregiver";
 
   const {
     patients,
@@ -137,6 +210,11 @@ export default function Profile() {
     setActivePatient,
     loadPatients,
   } = useApp();
+
+  const {
+    accessUsers,
+    loadAccessUsers,
+  } = useAccess();
 
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -158,7 +236,7 @@ export default function Profile() {
   const [selectedProfile, setSelectedProfile] =
     useState<SelectedProfile>(null);
 
-  const [busy, setBusy] = useState(false);
+  const [accessBusy, setAccessBusy] = useState(false);
 
   const loadOverview = useCallback(async () => {
     const map: Record<string, any> = {};
@@ -180,7 +258,14 @@ export default function Profile() {
 
   const loadRelatives = useCallback(async () => {
     try {
-      const result = await api("/relatives");
+      if (!activePatient?.id) {
+        setRelatives([]);
+        return;
+      }
+
+      const result = await api(
+        `/relatives?patient_id=${encodeURIComponent(activePatient.id)}`
+      );
 
       setRelatives(
         Array.isArray(result) ? result : []
@@ -192,11 +277,18 @@ export default function Profile() {
       );
       setRelatives([]);
     }
-  }, []);
+  }, [activePatient?.id]);
 
   const loadCaregivers = useCallback(async () => {
     try {
-      const result = await api("/caregivers");
+      if (!activePatient?.id) {
+        setCaregivers([]);
+        return;
+      }
+
+      const result = await api(
+        `/caregivers?patient_id=${encodeURIComponent(activePatient.id)}`
+      );
 
       setCaregivers(
         Array.isArray(result) ? result : []
@@ -208,11 +300,18 @@ export default function Profile() {
       );
       setCaregivers([]);
     }
-  }, []);
+  }, [activePatient?.id]);
 
   const loadDoctors = useCallback(async () => {
     try {
-      const result = await api("/doctors");
+      if (!activePatient?.id) {
+        setDoctors([]);
+        return;
+      }
+
+      const result = await api(
+        `/doctors?patient_id=${encodeURIComponent(activePatient.id)}`
+      );
 
       setDoctors(Array.isArray(result) ? result : []);
     } catch (error) {
@@ -222,18 +321,24 @@ export default function Profile() {
       );
       setDoctors([]);
     }
-  }, []);
+  }, [activePatient?.id]);
 
   const reloadAllProfiles = useCallback(() => {
     void loadPatients();
     void loadRelatives();
     void loadCaregivers();
     void loadDoctors();
+
+    if (canManageProfiles) {
+      void loadAccessUsers();
+    }
   }, [
     loadPatients,
     loadRelatives,
     loadCaregivers,
     loadDoctors,
+    loadAccessUsers,
+    canManageProfiles,
   ]);
 
   useFocusEffect(
@@ -246,22 +351,11 @@ export default function Profile() {
     void loadOverview();
   }, [loadOverview]);
 
-  const changeRole = async (role: string) => {
-    setBusy(true);
-
-    try {
-      await setRole(role);
-    } catch (error) {
-      console.error(
-        "Fehler beim Ändern der Rolle:",
-        error
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const removePatient = async (id: string) => {
+    if (!canManageProfiles) {
+      return;
+    }
+
     try {
       await api(`/patients/${id}`, {
         method: "DELETE",
@@ -284,6 +378,10 @@ export default function Profile() {
   };
 
   const removeRelative = async (relative: Relative) => {
+    if (!canManageProfiles) {
+      return;
+    }
+
     const id = serverRecordId(relative);
 
     if (!id) {
@@ -318,6 +416,10 @@ export default function Profile() {
   const removeCaregiver = async (
     caregiver: Caregiver
   ) => {
+    if (!canManageProfiles) {
+      return;
+    }
+
     const id = serverRecordId(caregiver);
 
     if (!id) {
@@ -350,6 +452,10 @@ export default function Profile() {
   };
 
   const removeDoctor = async (doctor: Doctor) => {
+    if (!canManageProfiles) {
+      return;
+    }
+
     const id = serverRecordId(doctor);
 
     if (!id) {
@@ -378,6 +484,220 @@ export default function Profile() {
         "Fehler beim Löschen des Hausarztes:",
         error
       );
+    }
+  };
+
+  const selectedAccessData = useCallback(() => {
+    if (!selectedProfile) {
+      return null;
+    }
+
+    if (selectedProfile.type === "patient") {
+      const patient = patients.find(
+        (item) => item.id === selectedProfile.id
+      );
+
+      if (!patient) {
+        return null;
+      }
+
+      return {
+        name: patient.name || "Patient",
+        role: "patient",
+        source_id: patient.id,
+        patient_id: patient.id,
+      };
+    }
+
+    if (!activePatient?.id) {
+      return null;
+    }
+
+    if (selectedProfile.type === "relative") {
+      const relative = relatives.find(
+        (item, index) =>
+          recordId(item, `relative-${index}`) ===
+          selectedProfile.id
+      );
+
+      const sourceId = relative
+        ? serverRecordId(relative)
+        : null;
+
+      if (!relative || !sourceId) {
+        return null;
+      }
+
+      return {
+        name: fullName(
+          relative.first_name,
+          relative.last_name,
+          "Angehörige Person"
+        ),
+        role: "relative",
+        source_id: sourceId,
+        patient_id: activePatient.id,
+      };
+    }
+
+    if (selectedProfile.type === "caregiver") {
+      const caregiver = caregivers.find(
+        (item, index) =>
+          recordId(item, `caregiver-${index}`) ===
+          selectedProfile.id
+      );
+
+      const sourceId = caregiver
+        ? serverRecordId(caregiver)
+        : null;
+
+      if (!caregiver || !sourceId) {
+        return null;
+      }
+
+      return {
+        name: fullName(
+          caregiver.first_name,
+          caregiver.last_name,
+          "Pflegekraft"
+        ),
+        role: "caregiver",
+        source_id: sourceId,
+        patient_id: activePatient.id,
+      };
+    }
+
+    const doctor = doctors.find(
+      (item, index) =>
+        recordId(item, `doctor-${index}`) ===
+        selectedProfile.id
+    );
+
+    const sourceId = doctor
+      ? serverRecordId(doctor)
+      : null;
+
+    if (!doctor || !sourceId) {
+      return null;
+    }
+
+    return {
+      name:
+        [
+          doctor.title,
+          doctor.first_name,
+          doctor.last_name,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .trim() || "Hausarzt",
+      role: "doctor",
+      source_id: sourceId,
+      patient_id: activePatient.id,
+    };
+  }, [
+    selectedProfile,
+    patients,
+    relatives,
+    caregivers,
+    doctors,
+    activePatient,
+  ]);
+
+  const createAccessForSelectedProfile = async () => {
+    if (!canManageProfiles) {
+      return;
+    }
+
+    const data = selectedAccessData();
+
+    if (!selectedProfile) {
+      Alert.alert(
+        "Person auswählen",
+        "Wählen Sie zuerst oben einen Patienten, Angehörigen, eine Pflegekraft oder einen Arzt aus."
+      );
+      return;
+    }
+
+    if (!data) {
+      Alert.alert(
+        "Zugang nicht möglich",
+        "Für Angehörige, Pflegekräfte und Ärzte muss zuerst ein aktiver Patient ausgewählt sein. Außerdem wird eine gültige Datensatz-ID benötigt."
+      );
+      return;
+    }
+
+    const duplicate = accessUsers.some(
+      (item) =>
+        String((item as any).source_id || "") ===
+          data.source_id &&
+        String(item.role || "").toLowerCase() ===
+          data.role
+    );
+
+    if (duplicate) {
+      Alert.alert(
+        "Zugang bereits vorhanden",
+        "Für diese Person existiert bereits ein Zugangsprofil."
+      );
+      return;
+    }
+
+    setAccessBusy(true);
+
+    try {
+      await api("/access-users", {
+        method: "POST",
+        body: {
+          name: data.name,
+          role: data.role,
+          pin: "0000",
+          source_id: data.source_id,
+          patient_id: data.patient_id,
+          active: true,
+        },
+      });
+
+      await loadAccessUsers();
+
+      Alert.alert(
+        "Zugang erstellt",
+        `${data.name} kann sich jetzt mit dem vorläufigen PIN 0000 anmelden.`
+      );
+    } catch (error: any) {
+      Alert.alert(
+        "Zugang konnte nicht erstellt werden",
+        error?.message ||
+          "Bitte versuchen Sie es erneut."
+      );
+    } finally {
+      setAccessBusy(false);
+    }
+  };
+
+  const removeAccessUser = async (
+    accessUser: AccessUser
+  ) => {
+    if (!canManageProfiles || !accessUser.id) {
+      return;
+    }
+
+    setAccessBusy(true);
+
+    try {
+      await api(`/access-users/${accessUser.id}`, {
+        method: "DELETE",
+      });
+
+      await loadAccessUsers();
+    } catch (error: any) {
+      Alert.alert(
+        "Zugang konnte nicht gelöscht werden",
+        error?.message ||
+          "Bitte versuchen Sie es erneut."
+      );
+    } finally {
+      setAccessBusy(false);
     }
   };
 
@@ -452,57 +772,41 @@ export default function Profile() {
 
         <SectionTitle title="Meine Rolle" />
 
-        <View style={styles.roleRow}>
-          {Object.entries(ROLES).map(
-            ([key, label]) => {
-              const active = user?.role === key;
+        <Card style={styles.currentRoleCard}>
+          <View style={styles.currentRoleIcon}>
+            <Ionicons
+              name={profileRoleIcon(user?.role)}
+              size={25}
+              color={colors.brandPrimary}
+            />
+          </View>
 
-              return (
-                <Pressable
-                  key={key}
-                  testID={`role-${key}`}
-                  onPress={() => changeRole(key)}
-                  disabled={busy}
-                  style={[
-                    styles.roleChip,
-                    active && styles.roleActive,
-                  ]}
-                >
-                  <Ionicons
-                    name={
-                      key === "patient"
-                        ? "person"
-                        : key === "relative"
-                          ? "people"
-                          : "medical"
-                    }
-                    size={18}
-                    color={
-                      active
-                        ? "#FFFFFF"
-                        : colors.brandPrimary
-                    }
-                  />
+          <View style={styles.flexOne}>
+            <Text style={styles.currentRoleLabel}>
+              {profileRoleLabel(user?.role)}
+            </Text>
 
-                  <Text
-                    style={[
-                      styles.roleText,
-                      active &&
-                        styles.roleTextActive,
-                    ]}
-                  >
-                    {label}
-                  </Text>
-                </Pressable>
-              );
-            }
-          )}
-        </View>
+            <Text style={styles.currentRoleInfo}>
+              Die Rolle wird durch den persönlichen PIN-Zugang
+              festgelegt und kann hier nicht geändert werden.
+            </Text>
+          </View>
+
+          <Ionicons
+            name="lock-closed"
+            size={20}
+            color={colors.onSurfaceTertiary}
+          />
+        </Card>
 
         <SectionTitle
           title="Betreute Personen"
-          action="+ Hinzufügen"
-          onAction={() => router.push("/add-person")}
+          action={canManageProfiles ? "+ Hinzufügen" : undefined}
+          onAction={
+            canManageProfiles
+              ? () => router.push("/add-person")
+              : undefined
+          }
         />
 
         {patients.length === 0 && (
@@ -591,7 +895,7 @@ export default function Profile() {
                 )}
               </Pressable>
 
-              {!patient.is_self && (
+              {canManageProfiles && !patient.is_self && (
                 <Pressable
                   onPress={() =>
                     confirmDelete(
@@ -616,9 +920,11 @@ export default function Profile() {
 
         <SectionTitle
           title="Gespeicherte Angehörige"
-          action="+ Hinzufügen"
-          onAction={() =>
-            router.push("/add-relative")
+          action={canManageProfiles ? "+ Hinzufügen" : undefined}
+          onAction={
+            canManageProfiles
+              ? () => router.push("/add-relative")
+              : undefined
           }
         />
 
@@ -699,32 +1005,36 @@ export default function Profile() {
                 )}
               </Pressable>
 
-              <Pressable
-                onPress={() =>
-                  confirmDelete(
-                    "Angehörigen löschen",
-                    "Möchten Sie diese Kontaktperson wirklich löschen?",
-                    () =>
-                      void removeRelative(relative)
-                  )
-                }
-                style={styles.deleteButton}
-              >
-                <Ionicons
-                  name="trash-outline"
-                  size={19}
-                  color={colors.error}
-                />
-              </Pressable>
+              {canManageProfiles && (
+                <Pressable
+                  onPress={() =>
+                    confirmDelete(
+                      "Angehörigen löschen",
+                      "Möchten Sie diese Kontaktperson wirklich löschen?",
+                      () =>
+                        void removeRelative(relative)
+                    )
+                  }
+                  style={styles.deleteButton}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={19}
+                    color={colors.error}
+                  />
+                </Pressable>
+              )}
             </Card>
           );
         })}
 
         <SectionTitle
           title="Gespeicherte Pflegekräfte"
-          action="+ Hinzufügen"
-          onAction={() =>
-            router.push("/add-caregiver")
+          action={canManageProfiles ? "+ Hinzufügen" : undefined}
+          onAction={
+            canManageProfiles
+              ? () => router.push("/add-caregiver")
+              : undefined
           }
         />
 
@@ -805,31 +1115,37 @@ export default function Profile() {
                 )}
               </Pressable>
 
-              <Pressable
-                onPress={() =>
-                  confirmDelete(
-                    "Pflegekraft löschen",
-                    "Möchten Sie diese Pflegekraft wirklich löschen?",
-                    () =>
-                      void removeCaregiver(caregiver)
-                  )
-                }
-                style={styles.deleteButton}
-              >
-                <Ionicons
-                  name="trash-outline"
-                  size={19}
-                  color={colors.error}
-                />
-              </Pressable>
+              {canManageProfiles && (
+                <Pressable
+                  onPress={() =>
+                    confirmDelete(
+                      "Pflegekraft löschen",
+                      "Möchten Sie diese Pflegekraft wirklich löschen?",
+                      () =>
+                        void removeCaregiver(caregiver)
+                    )
+                  }
+                  style={styles.deleteButton}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={19}
+                    color={colors.error}
+                  />
+                </Pressable>
+              )}
             </Card>
           );
         })}
 
         <SectionTitle
           title="Gespeicherte Hausärzte"
-          action="+ Hinzufügen"
-          onAction={() => router.push("/add-doctor")}
+          action={canManageProfiles ? "+ Hinzufügen" : undefined}
+          onAction={
+            canManageProfiles
+              ? () => router.push("/add-doctor")
+              : undefined
+          }
         />
 
         {doctors.length === 0 && (
@@ -912,25 +1228,145 @@ export default function Profile() {
                 )}
               </Pressable>
 
-              <Pressable
-                onPress={() =>
-                  confirmDelete(
-                    "Hausarzt löschen",
-                    "Möchten Sie diesen Arzt wirklich löschen?",
-                    () => void removeDoctor(doctor)
-                  )
-                }
-                style={styles.deleteButton}
-              >
-                <Ionicons
-                  name="trash-outline"
-                  size={19}
-                  color={colors.error}
-                />
-              </Pressable>
+              {canManageProfiles && (
+                <Pressable
+                  onPress={() =>
+                    confirmDelete(
+                      "Hausarzt löschen",
+                      "Möchten Sie diesen Arzt wirklich löschen?",
+                      () => void removeDoctor(doctor)
+                    )
+                  }
+                  style={styles.deleteButton}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={19}
+                    color={colors.error}
+                  />
+                </Pressable>
+              )}
             </Card>
           );
         })}
+
+        {canManageProfiles && (
+          <>
+          <SectionTitle title="Zugriffsverwaltung" />
+
+          <Card style={styles.accessManagementCard}>
+            <View style={styles.accessHeaderRow}>
+              <View style={styles.accessHeaderIcon}>
+                <Ionicons
+                  name="shield-checkmark"
+                  size={25}
+                  color={colors.brandPrimary}
+                />
+              </View>
+
+              <View style={styles.flexOne}>
+                <Text style={styles.accessTitle}>
+                  Medizinische Zugänge
+                </Text>
+
+                <Text style={styles.accessDescription}>
+                  Wählen Sie oben eine Person aus und erstellen
+                  Sie anschließend einen persönlichen Zugang.
+                  Der vorläufige PIN lautet 0000.
+                </Text>
+              </View>
+            </View>
+
+            <Pressable
+              onPress={() =>
+                void createAccessForSelectedProfile()
+              }
+              disabled={accessBusy}
+              style={[
+                styles.createAccessButton,
+                accessBusy && styles.disabledButton,
+              ]}
+            >
+              <Ionicons
+                name="key-outline"
+                size={20}
+                color="#FFFFFF"
+              />
+
+              <Text style={styles.createAccessText}>
+                {selectedProfile
+                  ? "Zugang für ausgewählte Person erstellen"
+                  : "Zuerst Person auswählen"}
+              </Text>
+            </Pressable>
+          </Card>
+
+          {accessUsers.length === 0 ? (
+            <Text style={styles.emptyText}>
+              Noch kein Zugangsprofil gespeichert.
+            </Text>
+          ) : (
+            accessUsers.map((accessUser) => (
+              <Card
+                key={accessUser.id}
+                style={styles.accessUserCard}
+              >
+                <View style={styles.accessUserIcon}>
+                  <Ionicons
+                    name={
+                      accessUser.role === "relative"
+                        ? "people"
+                        : accessUser.role === "patient"
+                          ? "person"
+                          : accessUser.role === "doctor"
+                            ? "medkit"
+                            : "medical"
+                    }
+                    size={23}
+                    color={colors.brandPrimary}
+                  />
+                </View>
+
+                <View style={styles.flexOne}>
+                  <Text style={styles.personName}>
+                    {accessUserName(accessUser)}
+                  </Text>
+
+                  <Text style={styles.personMeta}>
+                    {accessRoleLabel(accessUser.role)}
+                    {accessUser.active === false
+                      ? " · Deaktiviert"
+                      : " · Aktiv"}
+                  </Text>
+
+                  <Text style={styles.accessPinInfo}>
+                    Anmeldung über persönlichen PIN
+                  </Text>
+                </View>
+
+                <Pressable
+                  onPress={() =>
+                    confirmDelete(
+                      "Zugang löschen",
+                      "Möchten Sie dieses Zugangsprofil wirklich löschen?",
+                      () =>
+                        void removeAccessUser(accessUser)
+                    )
+                  }
+                  disabled={accessBusy}
+                  style={styles.deleteButton}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={19}
+                    color={colors.error}
+                  />
+                </Pressable>
+              </Card>
+            ))
+          )}
+          </>
+        )}
 
         <Pressable
           testID="logout-button"
@@ -1017,36 +1453,33 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  roleRow: {
+  currentRoleCard: {
     flexDirection: "row",
-    gap: spacing.sm,
-  },
-
-  roleChip: {
-    flex: 1,
     alignItems: "center",
-    gap: 4,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+    gap: spacing.md,
+    marginBottom: spacing.md,
   },
 
-  roleActive: {
-    backgroundColor: colors.brandPrimary,
-    borderColor: colors.brandPrimary,
+  currentRoleIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.brandSecondary,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
-  roleText: {
+  currentRoleLabel: {
+    fontSize: font.lg,
+    fontWeight: "800",
+    color: colors.onSurface,
+  },
+
+  currentRoleInfo: {
+    marginTop: 3,
     fontSize: 12,
-    fontWeight: "700",
-    color: colors.brandPrimary,
-    textAlign: "center",
-  },
-
-  roleTextActive: {
-    color: "#FFFFFF",
+    lineHeight: 17,
+    color: colors.onSurfaceTertiary,
   },
 
   personCard: {
@@ -1104,6 +1537,84 @@ const styles = StyleSheet.create({
   deleteButton: {
     padding: spacing.sm,
     marginLeft: spacing.sm,
+  },
+
+  accessManagementCard: {
+    marginBottom: spacing.md,
+    gap: spacing.md,
+  },
+
+  accessHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.md,
+  },
+
+  accessHeaderIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: colors.brandSecondary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  accessTitle: {
+    fontSize: font.lg,
+    fontWeight: "800",
+    color: colors.onSurface,
+  },
+
+  accessDescription: {
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.onSurfaceTertiary,
+  },
+
+  createAccessButton: {
+    minHeight: 52,
+    borderRadius: radius.md,
+    backgroundColor: colors.brandPrimary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+
+  createAccessText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+
+  disabledButton: {
+    opacity: 0.55,
+  },
+
+  accessUserCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: spacing.md,
+    paddingVertical: spacing.md,
+  },
+
+  accessUserIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    marginRight: spacing.md,
+    backgroundColor: colors.brandSecondary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  accessPinInfo: {
+    marginTop: 3,
+    fontSize: 11,
+    color: colors.onSurfaceTertiary,
   },
 
   logout: {

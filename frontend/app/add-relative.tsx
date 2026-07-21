@@ -17,8 +17,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "@/src/api";
 import { colors, spacing, radius, font } from "@/src/theme";
 import { PrimaryButton } from "@/src/components/ui";
+import { useAuth } from "@/src/context/AuthContext";
+import { useApp } from "@/src/context/AppContext";
 
- const RELATIONSHIPS = [
+const RELATIONSHIPS = [
   "Ehepartner/in",
   "Sohn",
   "Tochter",
@@ -30,11 +32,22 @@ import { PrimaryButton } from "@/src/components/ui";
   "Andere",
 ];
 
- const GENDERS = ["Weiblich", "Männlich", "Divers"];
+const GENDERS = ["Weiblich", "Männlich", "Divers"];
 
- export default function AddRelative() {
+function normalizeRole(role?: string | null): string {
+  return String(role || "")
+    .trim()
+    .toLowerCase();
+}
+
+export default function AddRelative() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const { activePatient } = useApp();
+
+  const role = normalizeRole(user?.role);
+  const canManageRelatives = role === "caregiver";
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -69,6 +82,18 @@ import { PrimaryButton } from "@/src/components/ui";
   const save = async () => {
     setError("");
 
+    if (!activePatient?.id) {
+      setError("Bitte wählen Sie zuerst eine betreute Person aus.");
+      return;
+    }
+
+    if (!canManageRelatives) {
+      setError(
+        "Keine Berechtigung. Nur Pflegekräfte dürfen Angehörige anlegen oder bearbeiten."
+      );
+      return;
+    }
+
     if (!firstName.trim()) {
       setError("Bitte geben Sie den Vornamen ein.");
       return;
@@ -91,12 +116,17 @@ import { PrimaryButton } from "@/src/components/ui";
       return;
     }
 
+    if (saving) {
+      return;
+    }
+
     setSaving(true);
 
     try {
       await api("/relatives", {
         method: "POST",
         body: {
+          patient_id: activePatient.id,
           first_name: firstName.trim(),
           last_name: lastName.trim(),
           birth_date: birthDate.trim() || null,
@@ -142,6 +172,41 @@ import { PrimaryButton } from "@/src/components/ui";
       setSaving(false);
     }
   };
+
+  if (user && !canManageRelatives) {
+    return (
+      <View
+        style={[
+          styles.deniedContainer,
+          {
+            paddingTop: insets.top + spacing.xl,
+            paddingBottom: insets.bottom + spacing.xl,
+          },
+        ]}
+      >
+        <Ionicons
+          name="lock-closed"
+          size={52}
+          color={colors.error}
+        />
+
+        <Text style={styles.deniedTitle}>
+          Kein Bearbeitungszugriff
+        </Text>
+
+        <Text style={styles.deniedText}>
+          Angehörige dürfen nur von einer Pflegekraft angelegt oder bearbeitet werden.
+        </Text>
+
+        <PrimaryButton
+          label="Zurück"
+          icon="arrow-back"
+          onPress={() => router.back()}
+          style={styles.deniedButton}
+        />
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -429,7 +494,7 @@ import { PrimaryButton } from "@/src/components/ui";
           label="Angehörigen speichern"
           icon="checkmark-circle-outline"
           loading={saving}
-          onPress={save}
+          onPress={() => void save()}
           style={styles.saveButton}
         />
 
@@ -441,7 +506,7 @@ import { PrimaryButton } from "@/src/components/ui";
   );
 }
 
- type FieldProps = {
+type FieldProps = {
   label: string;
   value: string;
   onChangeText: (value: string) => void;
@@ -455,7 +520,7 @@ import { PrimaryButton } from "@/src/components/ui";
   multiline?: boolean;
 };
 
- function Field({
+function Field({
   label,
   value,
   onChangeText,
@@ -486,7 +551,7 @@ import { PrimaryButton } from "@/src/components/ui";
   );
 }
 
- type SectionHeaderProps = {
+type SectionHeaderProps = {
   icon:
     | "person-outline"
     | "call-outline"
@@ -497,7 +562,7 @@ import { PrimaryButton } from "@/src/components/ui";
   title: string;
 };
 
- function SectionHeader({
+function SectionHeader({
   icon,
   title,
 }: SectionHeaderProps) {
@@ -516,13 +581,13 @@ import { PrimaryButton } from "@/src/components/ui";
   );
 }
 
- type ChoiceChipProps = {
+type ChoiceChipProps = {
   label: string;
   selected: boolean;
   onPress: () => void;
 };
 
- function ChoiceChip({
+function ChoiceChip({
   label,
   selected,
   onPress,
@@ -547,14 +612,14 @@ import { PrimaryButton } from "@/src/components/ui";
   );
 }
 
- type ToggleRowProps = {
+type ToggleRowProps = {
   title: string;
   description: string;
   value: boolean;
   onValueChange: (value: boolean) => void;
 };
 
- function ToggleRow({
+function ToggleRow({
   title,
   description,
   value,
@@ -583,10 +648,39 @@ import { PrimaryButton } from "@/src/components/ui";
   );
 }
 
- const styles = StyleSheet.create({
+const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.surface,
+  },
+
+  deniedContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.xl,
+    backgroundColor: colors.surface,
+  },
+
+  deniedTitle: {
+    color: colors.onSurface,
+    fontSize: 22,
+    fontWeight: "800",
+    textAlign: "center",
+    marginTop: spacing.lg,
+  },
+
+  deniedText: {
+    color: colors.onSurfaceSecondary,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+    marginTop: spacing.sm,
+  },
+
+  deniedButton: {
+    alignSelf: "stretch",
+    marginTop: spacing.xl,
   },
 
   header: {

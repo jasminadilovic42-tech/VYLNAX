@@ -1,55 +1,196 @@
-import { Stack } from "expo-router";
-import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
-import { LogBox } from "react-native";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { SafeAreaProvider } from "react-native-safe-area-context";
-import { StatusBar } from "expo-status-bar";
+import React, { useEffect } from "react";
+import {
+  ActivityIndicator,
+  Platform,
+  View,
+} from "react-native";
+import {
+  Redirect,
+  Tabs,
+} from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
+import * as Speech from "expo-speech";
 
-import { useIconFonts } from "@/src/hooks/use-icon-fonts";
-import { AuthProvider } from "@/src/context/AuthContext";
-import { AppProvider } from "@/src/context/AppContext";
-import { AccessProvider } from "@/src/context/AccessContext";
-LogBox.ignoreAllLogs(true);
-SplashScreen.preventAutoHideAsync();
+import { colors } from "@/src/theme";
+import { useAccess } from "@/src/context/AccessContext";
 
-export default function RootLayout() {
-  const [loaded, error] = useIconFonts();
+export default function TabsLayout() {
+  const {
+    isAccessAuthenticated,
+    loading: accessLoading,
+  } = useAccess();
 
   useEffect(() => {
-    if (loaded || error) {
-      SplashScreen.hideAsync();
+    if (
+      accessLoading ||
+      !isAccessAuthenticated
+    ) {
+      return;
     }
-  }, [loaded, error]);
 
-  if (!loaded && !error) return null;
+    const welcomeTimer = setTimeout(() => {
+      Speech.speak(
+        "Willkommen bei VYLNAX Pro. Wie kann ich Ihnen helfen?",
+        {
+          language: "de-DE",
+          rate: 0.95,
+          pitch: 1.0,
+        }
+      );
+    }, 1200);
+
+    return () => {
+      clearTimeout(welcomeTimer);
+      Speech.stop();
+    };
+  }, [
+    accessLoading,
+    isAccessAuthenticated,
+  ]);
+
+  if (accessLoading) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.surface,
+        }}
+      >
+        <ActivityIndicator
+          size="large"
+          color={colors.brandPrimary}
+        />
+      </View>
+    );
+  }
+
+  if (!isAccessAuthenticated) {
+    return (
+      <Redirect href="/access-login" />
+    );
+  }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <AuthProvider>
-          <AccessProvider>
-          <AppProvider>
-            <StatusBar style="dark" />
-            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#FFFFFF" } }}>
-              <Stack.Screen name="index" />
-              <Stack.Screen name="login" />
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="add-medication" options={{ presentation: "modal" }} />
-              <Stack.Screen name="add-patient" options={{ presentation: "modal" }} />
-              <Stack.Screen name="sos" options={{ presentation: "modal", animation: "fade" }} />
-              <Stack.Screen name="device" />
-              <Stack.Screen name="device-diagnostics" />
-              <Stack.Screen name="pairing" options={{ presentation: "modal" }} />
-              <Stack.Screen name="safety" />
-              <Stack.Screen name="allergies" options={{ presentation: "modal" }} />
-              <Stack.Screen name="scan-prescription" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
-              <Stack.Screen name="scan-barcode" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
-            </Stack>
-          </AppProvider>
-         </AccessProvider>
-        </AuthProvider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <Tabs
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor:
+          colors.brandPrimary,
+        tabBarInactiveTintColor:
+          colors.borderStrong,
+        tabBarStyle: {
+          backgroundColor: colors.surface,
+          borderTopColor: colors.border,
+          height:
+            Platform.OS === "ios"
+              ? 88
+              : 64,
+          paddingTop: 6,
+          paddingBottom:
+            Platform.OS === "ios"
+              ? 28
+              : 8,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: "600",
+        },
+      }}
+      screenListeners={{
+        tabPress: () => {
+          if (Platform.OS !== "web") {
+            void Haptics.selectionAsync();
+          }
+        },
+      }}
+    >
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: "Übersicht",
+          tabBarIcon: ({
+            color,
+            size,
+          }) => (
+            <Ionicons
+              name="home"
+              size={size}
+              color={color}
+            />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="plan"
+        options={{
+          title: "Plan",
+          tabBarIcon: ({
+            color,
+            size,
+          }) => (
+            <Ionicons
+              name="medkit"
+              size={size}
+              color={color}
+            />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="assistant"
+        options={{
+          title: "Assistent",
+          tabBarIcon: ({
+            color,
+            size,
+          }) => (
+            <Ionicons
+              name="sparkles"
+              size={size}
+              color={color}
+            />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="reports"
+        options={{
+          title: "Berichte",
+          tabBarIcon: ({
+            color,
+            size,
+          }) => (
+            <Ionicons
+              name="bar-chart"
+              size={size}
+              color={color}
+            />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: "Profil",
+          tabBarIcon: ({
+            color,
+            size,
+          }) => (
+            <Ionicons
+              name="person"
+              size={size}
+              color={color}
+            />
+          ),
+        }}
+      />
+    </Tabs>
   );
 }
