@@ -1296,10 +1296,8 @@ async def add_med(
     patient_id: str,
     body: MedicationCreate,
     user=Depends(get_current_user),
-    access=Depends(require_write_access),
 ):
     await _owns_patient(user, patient_id)
-    await _assert_access_patient(access, patient_id)
     doc = {
         "id": uid("med"),
         "patient_id": patient_id,
@@ -1319,7 +1317,6 @@ async def add_med(
     await _write_audit_log(
         owner_id=user["user_id"],
         action="medication_created",
-        access_user=access["access_user"],
         patient_id=patient_id,
         target_type="medication",
         target_id=doc["id"],
