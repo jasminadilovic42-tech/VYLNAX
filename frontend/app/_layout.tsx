@@ -9,7 +9,6 @@ import { StatusBar } from "expo-status-bar";
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { AuthProvider } from "@/src/context/AuthContext";
 import { AppProvider } from "@/src/context/AppContext";
-import PushRegistrar from "@/src/components/PushRegistrar";
 
 LogBox.ignoreAllLogs(true);
 SplashScreen.preventAutoHideAsync();
@@ -30,28 +29,78 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <AuthProvider>
           <AppProvider>
-            <PushRegistrar />
             <StatusBar style="dark" />
-            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#FFFFFF" } }}>
+
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: {
+                  backgroundColor: "#FFFFFF",
+                },
+              }}
+            >
               <Stack.Screen name="index" />
               <Stack.Screen name="login" />
               <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="add-medication" options={{ presentation: "modal" }} />
-              <Stack.Screen name="add-patient" options={{ presentation: "modal" }} />
-              <Stack.Screen name="add-person" options={{ presentation: "modal" }} />
-              <Stack.Screen name="sos" options={{ presentation: "modal", animation: "fade" }} />
+
+              <Stack.Screen
+                name="add-medication"
+                options={{ presentation: "modal" }}
+              />
+
+              <Stack.Screen
+                name="add-patient"
+                options={{ presentation: "modal" }}
+              />
+
+              <Stack.Screen
+                name="add-person"
+                options={{ presentation: "modal" }}
+              />
+
+              <Stack.Screen
+                name="sos"
+                options={{
+                  presentation: "modal",
+                  animation: "fade",
+                }}
+              />
+
               <Stack.Screen name="device" />
               <Stack.Screen name="device-diagnostics" />
-              <Stack.Screen name="pairing" options={{ presentation: "modal" }} />
+
+              <Stack.Screen
+                name="pairing"
+                options={{ presentation: "modal" }}
+              />
+
               <Stack.Screen name="safety" />
               <Stack.Screen name="reminders" />
               <Stack.Screen name="notifications" />
               <Stack.Screen name="contacts" />
               <Stack.Screen name="daily-summary" />
               <Stack.Screen name="push-settings" />
-              <Stack.Screen name="allergies" options={{ presentation: "modal" }} />
-              <Stack.Screen name="scan-prescription" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
-              <Stack.Screen name="scan-barcode" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
+
+              <Stack.Screen
+                name="allergies"
+                options={{ presentation: "modal" }}
+              />
+
+              <Stack.Screen
+                name="scan-prescription"
+                options={{
+                  presentation: "fullScreenModal",
+                  animation: "slide_from_bottom",
+                }}
+              />
+
+              <Stack.Screen
+                name="scan-barcode"
+                options={{
+                  presentation: "fullScreenModal",
+                  animation: "slide_from_bottom",
+                }}
+              />
             </Stack>
           </AppProvider>
         </AuthProvider>
