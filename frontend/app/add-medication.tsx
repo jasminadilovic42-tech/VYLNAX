@@ -7,6 +7,7 @@ import * as Haptics from "expo-haptics";
 import { colors, spacing, radius, font, shadow, MED_COLORS, MED_FORMS, WEEKDAYS_FULL } from "@/src/theme";
 import { api } from "@/src/api";
 import { PrimaryButton } from "@/src/components/ui";
+import { useAuth } from "@/src/context/AuthContext";
 
 const TIME_PRESETS = ["08:00", "12:00", "16:00", "20:00"];
 const FREQUENCIES = ["Täglich", "Jeden 2. Tag", "Wöchentlich", "Nach Bedarf"];
@@ -16,6 +17,7 @@ export default function AddMedication() {
   const patientId = params.patientId;
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { canEditMedications } = useAuth();
   const [name, setName] = useState(params.pName || "");
   const [dosage, setDosage] = useState(params.pDosage || "");
   const [form, setForm] = useState(params.pForm && MED_FORMS.includes(params.pForm) ? params.pForm : "Tablette");
@@ -32,6 +34,7 @@ export default function AddMedication() {
   const [searching, setSearching] = useState(false);
   const [showSuggest, setShowSuggest] = useState(false);
   const [check, setCheck] = useState<any>(null);
+  const [selectedReference, setSelectedReference] = useState<any>(null);
   const suppress = useRef(!!params.pName);
 
   useEffect(() => {
@@ -54,6 +57,7 @@ export default function AddMedication() {
     setName(m.name);
     setDosage(m.dosage);
     setForm(m.form);
+    setSelectedReference(m);
     setResults([]);
     setShowSuggest(false);
   };
@@ -71,6 +75,7 @@ export default function AddMedication() {
   };
 
   const save = async () => {
+    if (!canEditMedications) { setError("Nur Pflegefachkräfte und Ärzte dürfen Medikamente ändern."); return; }
     setError("");
     if (!name.trim() || !dosage.trim() || times.length === 0 || days.length === 0) {
       setError("Bitte Name, Dosierung, mindestens eine Zeit und einen Tag angeben.");
@@ -79,7 +84,7 @@ export default function AddMedication() {
     // Pre-save safety check
     try {
       const res = await api<any>(`/patients/${patientId}/check-medication`, {
-        method: "POST",
+        method: "POST", access: true,
         body: { name: name.trim(), dosage: dosage.trim() },
       });
       if (!res.safe) {
@@ -96,10 +101,14 @@ export default function AddMedication() {
     setSaving(true);
     try {
       await api(`/patients/${patientId}/medications`, {
-        method: "POST",
+        method: "POST", access: true,
         body: {
           name: name.trim(), dosage: dosage.trim(), form, color, times, days,
           frequency, prescriber: prescriber.trim() || null, note: note.trim() || null,
+          reference_id: selectedReference?.id || null,
+          pzn: selectedReference?.pzn || null,
+          active_substances: selectedReference?.substances?.map((s: any) => s.name) || [],
+          pharmaceutical_form: selectedReference?.pharmaceutical_form || null,
         },
       });
       router.back();
@@ -145,7 +154,7 @@ export default function AddMedication() {
             <TextInput
               testID="med-name-input"
               value={name}
-              onChangeText={setName}
+              onChangeText={(value) => { setName(value); setSelectedReference(null); }}
               onFocus={() => results.length > 0 && setShowSuggest(true)}
               placeholder="Tippen Sie z. B. „Met“…"
               placeholderTextColor={colors.borderStrong}
@@ -161,7 +170,8 @@ export default function AddMedication() {
                   <View style={styles.resultIcon}><Ionicons name="medical" size={16} color={colors.brandPrimary} /></View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.resultName}>{m.name} {m.dosage}</Text>
-                    <Text style={styles.resultMeta}>{m.form} · {m.category}</Text>
+                    <Text style={styles.resultMeta}>{m.pharmaceutical_form || m.form} · {m.category}</Text>
+                    {m.pzn ? <Text style={styles.resultMeta}>PZN: {m.pzn}</Text> : null}
                   </View>
                   <Ionicons name="add-circle-outline" size={22} color={colors.brandPrimary} />
                 </Pressable>

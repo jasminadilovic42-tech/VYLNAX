@@ -1,0 +1,22 @@
+VYLNAX PRO 1.0 – PHASE 4
+
+DODANO:
+- Expo push registracija stvarnog mobilnog uređaja
+- povezivanje push tokena s prijavljenom osobom, ulogom i pacijentom
+- postavke za SOS, lijekove, vitalne vrijednosti i dnevni sažetak
+- backend slanje SOS push poruke povezanim korisnicima
+- klik na push otvara Hinweiszentrale
+- Android kanal visoke važnosti za alarme
+
+VAŽNO:
+Ova faza dodaje expo-notifications i expo-device. Potreban je NOVI EAS BUILD/APK, obični OTA update nije dovoljan za prvi prelazak.
+
+KOMANDE U FRONTEND FOLDERU:
+npm install
+e npx expo install expo-notifications expo-device
+e eas build --platform android --profile production
+
+Nakon što korisnici instaliraju novi build, buduće JS izmjene opet mogu ići preko EAS Updatea.
+
+OGRANIČENJE:
+Automatska provjera propuštenih terapija u pozadini zahtijeva planirani backend job/cron. U ovoj fazi stvarni push se šalje odmah za SOS. Backend struktura i preference su spremne i za medication/vitals/daily evente.

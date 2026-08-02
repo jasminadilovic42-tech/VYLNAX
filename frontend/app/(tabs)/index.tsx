@@ -23,7 +23,7 @@ type Item = {
 };
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, accessUser } = useAuth();
   const { activePatient } = useApp();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -62,6 +62,7 @@ export default function Dashboard() {
     try {
       await api("/intake", {
         method: "POST",
+        access: true,
         body: {
           patient_id: activePatient.id,
           medication_id: it.medication_id,
@@ -91,7 +92,7 @@ export default function Dashboard() {
           <Text style={styles.greeting}>Hallo, {firstName}</Text>
           <Text style={styles.role}>{ROLES[user?.role || "patient"]}</Text>
         </View>
-        <Pressable testID="header-bell" style={styles.bell}>
+        <Pressable testID="header-bell" onPress={() => router.push("/notifications")} style={styles.bell}>
           <Ionicons name="notifications-outline" size={22} color={colors.brand} />
           {missed > 0 && <View style={styles.dot} />}
         </Pressable>
@@ -139,19 +140,58 @@ export default function Dashboard() {
                 <Ionicons name="hardware-chip" size={22} color={colors.brandPrimary} />
                 <Text style={styles.quickText}>Gerät</Text>
               </Pressable>
-              <Pressable testID="quick-safety" onPress={() => router.push("/safety")} style={styles.quickCard}>
-                <Ionicons name="shield-checkmark" size={22} color={colors.brandPrimary} />
-                <Text style={styles.quickText}>Sicherheit</Text>
+              <Pressable testID="quick-reminders" onPress={() => router.push("/reminders")} style={styles.quickCard}>
+                <Ionicons name="notifications" size={22} color={colors.brandPrimary} />
+                <Text style={styles.quickText}>Erinnerungen</Text>
               </Pressable>
               <Pressable testID="quick-add-med" onPress={() => router.push({ pathname: "/add-medication", params: { patientId: activePatient?.id } })} style={styles.quickCard}>
                 <Ionicons name="add-circle" size={22} color={colors.brandPrimary} />
                 <Text style={styles.quickText}>Medikament</Text>
               </Pressable>
-              <Pressable testID="quick-assistant" onPress={() => router.push("/(tabs)/assistant")} style={styles.quickCard}>
+              <Pressable testID="quick-vitals" onPress={() => router.push("/vitals")} style={styles.quickCard}>
+                <Ionicons name="pulse" size={22} color={colors.brandPrimary} />
+                <Text style={styles.quickText}>Vitalwerte</Text>
+              </Pressable>
+            </View>
+            <View style={[styles.quickRow,{marginTop: spacing.md}]}>
+              <Pressable onPress={() => router.push("/journal")} style={styles.quickCard}>
+                <Ionicons name="book" size={22} color={colors.brandPrimary} />
+                <Text style={styles.quickText}>Tagebuch</Text>
+              </Pressable>
+              <Pressable onPress={() => router.push("/(tabs)/assistant")} style={styles.quickCard}>
                 <Ionicons name="sparkles" size={22} color={colors.brandPrimary} />
                 <Text style={styles.quickText}>KI-Hilfe</Text>
               </Pressable>
+              <Pressable onPress={() => router.push("/pairing")} style={styles.quickCard}>
+                <Ionicons name="bluetooth" size={22} color={colors.brandPrimary} />
+                <Text style={styles.quickText}>Verbinden</Text>
+              </Pressable>
+              <Pressable onPress={() => router.push("/sos")} style={styles.quickCard}>
+                <Ionicons name="alert-circle" size={22} color={colors.error} />
+                <Text style={styles.quickText}>Notfall</Text>
+              </Pressable>
             </View>
+            <View style={[styles.quickRow,{marginTop: spacing.md}]}>
+              <Pressable onPress={() => router.push("/daily-summary")} style={styles.quickCard}>
+                <Ionicons name="document-text" size={22} color={colors.brandPrimary} />
+                <Text style={styles.quickText}>Tagesbericht</Text>
+              </Pressable>
+              <Pressable onPress={() => router.push("/notifications")} style={styles.quickCard}>
+                <Ionicons name="warning" size={22} color={colors.warning} />
+                <Text style={styles.quickText}>Hinweise</Text>
+              </Pressable>
+              <Pressable onPress={() => router.push("/contacts")} style={styles.quickCard}>
+                <Ionicons name="people" size={22} color={colors.brandPrimary} />
+                <Text style={styles.quickText}>Kontakte</Text>
+              </Pressable>
+              <Pressable onPress={() => router.push("/safety")} style={styles.quickCard}>
+                <Ionicons name="shield-checkmark" size={22} color={colors.success} />
+                <Text style={styles.quickText}>Sicherheit</Text>
+              </Pressable>
+            </View>
+
+            <View style={[styles.quickRow,{marginTop: spacing.md}]}><Pressable onPress={() => router.push("/weekly-intelligence")} style={styles.quickCard}><Ionicons name="analytics" size={22} color={colors.brandPrimary} /><Text style={styles.quickText}>KI-Woche</Text></Pressable></View>
+            {(accessUser?.role === "caregiver" || accessUser?.role === "doctor") && <View style={[styles.quickRow,{marginTop: spacing.md}]}><Pressable onPress={() => router.push("/care-dashboard" as any)} style={styles.quickCard}><Ionicons name="people-circle" size={22} color={colors.brandPrimary}/><Text style={styles.quickText}>PFK-Cockpit</Text></Pressable></View>}
 
             {/* Today status */}
             <SectionTitle title="Heutiger Status" />

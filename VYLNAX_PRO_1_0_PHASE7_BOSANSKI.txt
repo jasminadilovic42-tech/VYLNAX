@@ -1,0 +1,17 @@
+VYLNAX PRO 1.0 – PHASE 7
+
+DODANO:
+- PFK/Arzt Cockpit za pregled svih pacijenata.
+- Sortiranje pacijenata po riziku i prioritetu.
+- Filteri: svi, visok, srednji i nizak rizik.
+- Pregled uzimanja terapije, propuštenih doza i vitalnih upozorenja.
+- Prva preporučena radnja za svakog pacijenta.
+- Klik na pacijenta otvara njegov detaljni KI sedmični izvještaj.
+- Cockpit je serverski zaštićen i dostupan samo doktoru i PFK-u.
+
+OBJAVLJIVANJE:
+1. Objaviti backend/server.py na Renderu.
+2. Zatim u frontend folderu pokrenuti:
+   eas update --channel production --message "VYLNAX PRO 1.0 Phase 7 PFK Cockpit"
+
+Nisu dodani novi native paketi, pa novi APK nije potreban ako je Phase 4 build već instaliran.

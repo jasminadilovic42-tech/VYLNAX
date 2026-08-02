@@ -68,7 +68,7 @@ class LocalCollection:
         self.db.data[self.name] = [d for d in self.db.data.get(self.name, []) if not self._matches(d, query or {})]
         self.db.save()
         return type('DeleteResult', (), {'deleted_count': before - len(self.db.data.get(self.name, []))})()
-    async def update_one(self, query, update):
+    async def update_one(self, query, update, upsert=False):
         matched = 0
         modified = 0
         for doc in self.db.data.get(self.name, []):
@@ -78,8 +78,16 @@ class LocalCollection:
                     doc.update(copy.deepcopy(update['$set']))
                     modified = 1
                 break
+        if not matched and upsert:
+            new_doc = copy.deepcopy(query or {})
+            if '$set' in update:
+                new_doc.update(copy.deepcopy(update['$set']))
+            new_doc.setdefault('_id', uuid.uuid4().hex)
+            self.db.data[self.name].append(new_doc)
+            matched = 1
+            modified = 1
         self.db.save()
-        return type('UpdateResult', (), {'matched_count': matched, 'modified_count': modified})()
+        return type('UpdateResult', (), {'matched_count': matched, 'modified_count': modified, 'upserted_id': None})()
 
 class LocalDB:
     def __init__(self, path: str | Path):

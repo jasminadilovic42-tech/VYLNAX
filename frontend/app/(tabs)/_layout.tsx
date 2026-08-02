@@ -1,11 +1,14 @@
 import React from "react";
-import { Tabs } from "expo-router";
+import { Tabs, Redirect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Platform } from "react-native";
 import * as Haptics from "expo-haptics";
 import { colors } from "@/src/theme";
+import { useAuth } from "@/src/context/AuthContext";
 
 export default function TabsLayout() {
+  const { accessUser, loading } = useAuth();
+  if (!loading && !accessUser) return <Redirect href="/login" />;
   return (
     <Tabs
       screenOptions={{

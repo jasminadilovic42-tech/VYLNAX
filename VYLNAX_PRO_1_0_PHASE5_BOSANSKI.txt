@@ -1,0 +1,32 @@
+VYLNAX PRO 1.0 – PHASE 5
+
+DODANO:
+- Automatska serverska provjera zakašnjelih doza.
+- Push pacijentu nakon prvog i drugog podsjetnika.
+- Push rodbini nakon definisanog vremena.
+- Push PFK-u/doktoru nakon eskalacije.
+- Dnevni sažetak nakon 19:00 po vremenskoj zoni Europe/Berlin.
+- Zaštita od duplog slanja iste faze alarma.
+- Evidencija svakog pokušaja slanja, ciljanih uloga i Expo rezultata.
+- Ekran "Automatik & Versand" za PFK/doktora i ručno testiranje.
+
+RENDER ENVIRONMENT VARIABLES:
+CRON_SECRET = dugačak nasumičan tajni tekst
+APP_TIMEZONE = Europe/Berlin
+
+RENDER CRON JOB:
+Method: POST
+URL: https://TVOJ-BACKEND.onrender.com/api/automation/run
+Header: X-Cron-Secret: ISTA_VRIJEDNOST_KAO_CRON_SECRET
+Raspored: svakih 5 minuta
+
+Primjer cron rasporeda:
+*/5 * * * *
+
+VAŽNO:
+- Render Cron mora slati POST zahtjev i X-Cron-Secret header.
+- Ako Render Cron interfejs ne podržava custom header, koristi mali cron shell/curl command:
+  curl -X POST -H "X-Cron-Secret: $CRON_SECRET" https://TVOJ-BACKEND.onrender.com/api/automation/run
+- Push radi samo za telefone registrovane u Profil > Push-Mitteilungen.
+- Korisnik mora uključiti odgovarajuću vrstu obavijesti.
+- Ovo ne zamjenjuje hitni poziv 112.

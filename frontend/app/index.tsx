@@ -6,7 +6,7 @@ import { colors } from "@/src/theme";
 import { VLogo } from "@/src/components/ui";
 
 export default function Index() {
-  const { user, loading } = useAuth();
+  const { user, accessUser, loading } = useAuth();
 
   if (loading) {
     return (
@@ -17,7 +17,8 @@ export default function Index() {
     );
   }
 
-  if (user) return <Redirect href="/(tabs)" />;
+  if (user && accessUser) return <Redirect href="/(tabs)" />;
+  if (user) return <Redirect href="/login" />;
   return <Redirect href="/login" />;
 }
 

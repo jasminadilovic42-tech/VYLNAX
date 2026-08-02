@@ -8,6 +8,7 @@ import { Platform } from "react-native";
 import { colors, spacing, radius, font } from "@/src/theme";
 import { api, todayStr } from "@/src/api";
 import { useApp } from "@/src/context/AppContext";
+import { useAuth } from "@/src/context/AuthContext";
 import { Card, StatusBadge, PrimaryButton } from "@/src/components/ui";
 import { PatientSwitcher } from "@/src/components/shared";
 
@@ -27,6 +28,7 @@ function weekDates(offset: number) {
 
 export default function Plan() {
   const { activePatient } = useApp();
+  const { canEditMedications } = useAuth();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [selected, setSelected] = useState(new Date());
@@ -52,6 +54,7 @@ export default function Plan() {
     if (Platform.OS !== "web") Haptics.selectionAsync();
     await api("/intake", {
       method: "POST",
+      access: true,
       body: { patient_id: activePatient.id, medication_id: it.medication_id, scheduled_date: todayStr(selected), scheduled_time: it.time, status },
     });
     load();

@@ -76,7 +76,7 @@ export default function Profile() {
           })}
         </View>
 
-        <SectionTitle title="Betreute Personen" action="+ Hinzufügen" onAction={() => router.push("/add-patient")} />
+        <SectionTitle title="Betreute Personen" action="+ Hinzufügen" onAction={() => router.push("/add-person" as any)} />
         {patients.map((p) => {
           const ov = overview[p.id];
           const active = activePatient?.id === p.id;
@@ -106,6 +106,25 @@ export default function Profile() {
             </Card>
           );
         })}
+
+        <SectionTitle title="Benachrichtigungen" />
+        <Pressable onPress={() => router.push("/push-settings" as any)} style={styles.settingsCard}>
+          <View style={styles.settingsIcon}><Ionicons name="notifications" size={22} color={colors.brandPrimary} /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.settingsTitle}>Push-Mitteilungen</Text>
+            <Text style={styles.settingsText}>SOS, Medikamente und Vitalwerte einstellen</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
+        </Pressable>
+
+        <Pressable onPress={() => router.push("/automation-status" as any)} style={[styles.settingsCard, { marginTop: spacing.md }]}>
+          <View style={styles.settingsIcon}><Ionicons name="server" size={22} color={colors.brandPrimary} /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.settingsTitle}>Automatik & Versand</Text>
+            <Text style={styles.settingsText}>Cron-Läufe, Medikamentenalarme und Zustellprotokoll</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
+        </Pressable>
 
         <Pressable testID="logout-button" onPress={logout} style={styles.logout}>
           <Ionicons name="log-out-outline" size={20} color={colors.error} />
@@ -138,6 +157,10 @@ const styles = StyleSheet.create({
   patientMeta: { fontSize: 12, color: colors.onSurfaceTertiary, marginTop: 2 },
   rateBadge: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill },
   delBtn: { padding: spacing.sm, marginLeft: spacing.sm },
+  settingsCard: { flexDirection: "row", alignItems: "center", gap: spacing.md, backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.md, borderWidth: 1, borderColor: colors.border },
+  settingsIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.brandSecondary, alignItems: "center", justifyContent: "center" },
+  settingsTitle: { fontSize: 15, fontWeight: "800", color: colors.onSurface },
+  settingsText: { fontSize: 12, color: colors.onSurfaceTertiary, marginTop: 2 },
   logout: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: spacing.xl, minHeight: 52, borderRadius: radius.md, backgroundColor: "#FDECEC" },
   logoutText: { color: colors.error, fontWeight: "800", fontSize: font.lg },
   footerBrand: { textAlign: "center", color: colors.onSurfaceTertiary, fontSize: 12, marginTop: spacing.xl },

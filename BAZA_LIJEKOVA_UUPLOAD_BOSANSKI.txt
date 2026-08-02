@@ -1,0 +1,33 @@
+VYLNAX PRO – INTEGRACIJA REFERENTNE BAZE LIJEKOVA
+Datum: 01.08.2026.
+
+URADJENO
+- Dodana baza sa 109.116 referentnih lijekova i 138.893 zapisa aktivnih supstanci.
+- Pretraga radi po nazivu lijeka, PZN-u i aktivnoj supstanci.
+- Rezultati prikazuju naziv, farmaceutski oblik, aktivnu supstancu, jacinu i PZN.
+- Izabrani referentni podaci se spremaju uz terapiju pacijenta.
+- Skeniranje PZN barkoda sada koristi cijelu referentnu bazu kao rezervni izvor.
+- Slike lijekova nisu dodane.
+
+VAZNO: DVA ODVOJENA UPLOADA
+1. BACKEND / RENDER
+   Prvo objaviti cijeli backend direktorij, ukljucujuci:
+   backend/server.py
+   backend/medications_reference.sqlite3
+
+   EAS Update NE moze poslati bazu na Render. Backend mora biti zasebno objavljen.
+
+2. FRONTEND / EAS UPDATE
+   Tek kada novi backend radi, u frontend direktoriju pokrenuti:
+   eas update --channel production --message "Referenz-Arzneimitteldatenbank integriert"
+
+   Ova frontend izmjena ne dodaje novi native modul, pa je pogodna za OTA/EAS Update ako postojeci build koristi isti runtime.
+
+TEST
+- U ekranu „Medikament hinzufügen“ upisati najmanje 2 slova, npr. Rami ili Metf.
+- Probati PZN 11524692.
+- Izabrati rezultat i provjeriti da su naziv, jacina i oblik popunjeni.
+
+SIGURNOST I LICENCA
+- Referentni podaci ne zamjenjuju provjeru ljekara ili apotekara.
+- Prije komercijalne distribucije provjeriti licencu i dozvoljeni nacin upotrebe izvornog skupa podataka.

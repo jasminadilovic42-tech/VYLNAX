@@ -15,12 +15,14 @@ export default function Sos() {
   const { activePatient } = useApp();
   const [sent, setSent] = useState(false);
   const [sending, setSending] = useState(false);
+  const [contactCount, setContactCount] = useState(0);
 
   const trigger = async () => {
     setSending(true);
     if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     try {
-      await api("/sos", { method: "POST", body: { patient_id: activePatient?.id, message: "Notruf über App ausgelöst" } });
+      const result = await api<any>("/sos", { method: "POST", body: { patient_id: activePatient?.id, message: "Notruf über App ausgelöst" } });
+      setContactCount(result?.contact_count || 0);
       setSent(true);
     } catch {
       setSent(true);
@@ -60,7 +62,7 @@ export default function Sos() {
               <Ionicons name="checkmark-circle" size={72} color="#fff" />
             </View>
             <Text style={styles.title}>Notruf gesendet</Text>
-            <Text style={styles.sub}>Ihre Angehörigen und Pflegekräfte wurden benachrichtigt. Hilfe ist unterwegs.</Text>
+            <Text style={styles.sub}>{contactCount > 0 ? `${contactCount} Sicherheitskontakt(e) wurden in die Alarmkette aufgenommen.` : "Der SOS-Alarm wurde gespeichert. Es ist noch kein Sicherheitskontakt eingerichtet – bitte rufen Sie bei akuter Gefahr 112 an."}</Text>
             <Pressable testID="sos-done" onPress={() => router.back()} style={styles.sosBtn}>
               <Text style={styles.sosBtnText}>Schließen</Text>
             </Pressable>

@@ -25,12 +25,14 @@ export default function Reports() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [habits, setHabits] = useState<any>(null);
 
   const load = useCallback(async () => {
     if (!activePatient) { setData(null); setLoading(false); return; }
     try {
       const res = await api(`/patients/${activePatient.id}/reports?period=${period}`);
       setData(res);
+      api(`/patients/${activePatient.id}/habits/summary?days=${period === "day" ? 1 : period === "week" ? 7 : 30}`).then(setHabits).catch(()=>{});
     } catch {} finally { setLoading(false); }
   }, [activePatient, period]);
 
@@ -127,6 +129,12 @@ export default function Reports() {
                   />
                 </View>
               )}
+            </Card>
+
+            <Card style={{ marginTop: spacing.lg }}>
+              <Text style={styles.cardTitle}>KI-Gewohnheitsanalyse</Text>
+              <Text style={{color:colors.onSurfaceSecondary,marginTop:spacing.sm}}>Erfasste Ereignisse: {habits?.total_events ?? 0}</Text>
+              {(habits?.insights || []).map((x:string,i:number)=><View key={i} style={{flexDirection:"row",gap:8,marginTop:10}}><Ionicons name="sparkles" size={16} color={colors.brandPrimary}/><Text style={{flex:1,color:colors.onSurface}}>{x}</Text></View>)}
             </Card>
 
             <Pressable testID="export-pdf" onPress={exportPdf} disabled={exporting} style={styles.exportBtn}>
