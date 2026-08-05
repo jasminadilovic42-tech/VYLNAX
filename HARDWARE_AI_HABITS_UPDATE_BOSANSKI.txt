@@ -1,0 +1,14 @@
+VYLNAX PRO – UREĐAJI, GLASOVNI AI I NAVIKE
+
+Dodano:
+- Spremanje uparenog VYLNAX PRO uređaja ili VYLNAX Band narukvice po pacijentu.
+- Izbor Wi-Fi, Bluetooth ili QR načina povezivanja.
+- Backend rute za uređaje i evidenciju navika.
+- Sprachmodus / Hallo VYLNAX kontrola u AI asistentu.
+- Statistika navika u izvještajima.
+
+VAŽNO:
+Trenutna verzija ima funkcionalan softverski tok i simulaciju povezivanja. Pravo Bluetooth skeniranje, unos Wi-Fi lozinke u uređaj i stalni wake-word zahtijevaju specifikaciju firmware protokola stvarnog prototipa i native mobilne module. Zbog toga će za punu funkciju trebati novi APK/EAS Build, ne samo OTA EAS Update.
+
+Privatnost:
+Navike se pamte kao događaji (npr. potvrda uzimanja, AI razgovor), a ne kao tajni audio snimci. Stalno audio snimanje nije uključeno.

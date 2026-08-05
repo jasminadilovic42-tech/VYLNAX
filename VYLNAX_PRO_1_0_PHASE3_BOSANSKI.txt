@@ -1,0 +1,31 @@
+VYLNAX PRO 1.0 – PHASE 3
+========================
+
+DODANO
+- Sigurnosni kontakti po pacijentu (telefon/e-mail, prioritet, SOS i alarmi terapije).
+- Nova Hinweiszentrale: SOS alarmi, vitalni alarmi i eskalirane propuštene terapije.
+- Potvrda/prijem alarma uz ime prijavljene osobe i vrijeme potvrde.
+- Poboljšan SOS tok: prikazuje koliko je kontakata uključeno u alarmni lanac.
+- Ako nema kontakta, aplikacija to jasno kaže i upućuje na 112 kod akutne opasnosti.
+- Automatska dnevna pacijentova statistika: terapija, vitalna mjerenja, dnevnik, alarmi i SOS.
+- Novi ekrani: Sicherheitskontakte, Hinweiszentrale i Tagesübersicht.
+- Nova brza dugmad na početnom ekranu.
+- Ispravljen lokalni backend upsert kako bi postavke i novi podaci mogli biti spremljeni lokalno.
+
+PRAVA PRISTUPA
+- Doktor i PFK mogu dodavati i brisati sigurnosne kontakte.
+- Pacijent i rodbina mogu pregledati kontakte.
+- Sve prijavljene uloge povezane s pacijentom mogu potvrditi da su vidjele alarm.
+
+VAŽNO
+- Ova faza pravi stvarni alarmni tok UNUTAR VYLNAX sistema.
+- Vanjski SMS, automatski telefonski poziv i push poruke kada je aplikacija zatvorena još zahtijevaju vanjski servis i native notification paket.
+- Aplikacija više ne tvrdi da je kontakt obaviješten ako kontakt nije konfigurisan.
+- Dnevni izvještaj je automatski sažetak i nije medicinska dijagnoza.
+
+UPLOAD
+1. Objaviti backend folder na Renderu.
+2. Zatim u frontend folderu pokrenuti:
+   eas update --channel production --message "VYLNAX PRO 1.0 Phase 3 Sicherheit und Tagesbericht"
+
+Za potpuno vanjsko push obavještavanje naredna faza treba uključiti Expo Notifications/Firebase i novi EAS Build.

@@ -1,0 +1,47 @@
+VYLNAX PRO 1.0 – FAZA 1
+
+DODANO U OVOJ VERZIJI
+1. VITALNI PARAMETRI
+- Ručni unos krvnog pritiska, pulsa, SpO2, temperature, težine i koraka.
+- Svaka vrijednost se sprema uz aktivnog pacijenta.
+- Izvor mjerenja se sprema (trenutno manual; kasnije band/device/bluetooth).
+- Prikaz posljednjih vrijednosti i sedmodnevnog pregleda.
+
+2. AUTOMATSKA UPOZORENJA
+- Backend provjerava osnovne granične vrijednosti.
+- Upozorenja se spremaju i prikazuju u aplikaciji.
+- Ovo nije medicinska dijagnoza i pragovi se prije kliničke upotrebe moraju validirati.
+
+3. AI/TREND OSNOVA
+- Health Summary API grupiše mjerenja i računa jednostavne promjene kroz vrijeme.
+- Svako mjerenje se dodaje i u sistem navika pacijenta.
+- Buduća narukvica i uređaj mogu koristiti iste API rute.
+
+4. PACIJENTOV DNEVNIK
+- Unos opažanja, simptoma, raspoloženja, njege i kontakta s doktorom.
+- Sprema se autor i datum unosa.
+- Historija je vezana uz aktivnog pacijenta.
+
+5. NOVA BRZA DUGMAD
+- Vitalwerte
+- Tagebuch
+- KI-Hilfe
+- Verbinden
+- Notfall
+
+NOVE BACKEND RUTE
+POST /api/patients/{patient_id}/vitals
+GET  /api/patients/{patient_id}/vitals
+GET  /api/patients/{patient_id}/health-summary?days=7
+POST /api/patients/{patient_id}/journal
+GET  /api/patients/{patient_id}/journal
+
+UPLOAD
+1. Objaviti backend/server.py na Renderu.
+2. Zatim objaviti frontend preko EAS Updatea, jer ova faza ne dodaje novi native paket:
+   eas update --channel production --message "VYLNAX PRO 1.0 Phase 1: Vitalwerte und Tagebuch"
+
+VAZNO
+- Stvarni Bluetooth podaci s narukvice još nisu uključeni jer za to trebaju UUID i format firmware poruka.
+- Pragovi upozorenja su demonstracijski sigurnosni signali, a ne zamjena za medicinsku procjenu.
+- Nisu dodane slike lijekova.

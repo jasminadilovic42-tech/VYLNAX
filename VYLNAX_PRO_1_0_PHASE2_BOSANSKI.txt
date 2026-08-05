@@ -1,0 +1,18 @@
+VYLNAX PRO 1.0 – PHASE 2
+
+DODANO:
+- Centar za pametna podsjećanja lijekova.
+- Prva i druga personalizovana opomena.
+- Eskalacija prema rodbini i PFK prema podesivim minutama.
+- Pregled uzetih, zakasnelih i eskaliranih doza.
+- Spremanje pravila po pacijentu.
+- Samo doktor i PFK mogu mijenjati pravila.
+- Ispravljeno slanje PIN pristupne sesije kod potvrde terapije.
+
+VAŽNO:
+Trenutno backend izračunava kome bi upozorenje trebalo biti poslano. Za stvarne push poruke/SMS/pozive kasnije treba povezati Expo Notifications ili servis poput Firebase/Twilio i imati potvrđene kontakt podatke.
+
+UPLOAD:
+1. Objaviti backend na Renderu.
+2. U frontend folderu pokrenuti:
+   eas update --channel production --message "VYLNAX PRO 1.0 Phase 2 Erinnerungen"

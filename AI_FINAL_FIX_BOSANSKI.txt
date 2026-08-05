@@ -1,0 +1,20 @@
+VYLNAX AI FINAL FIX
+
+U ovoj verziji su ispravljene dvije ključne stvari:
+1. /api/assistant/chat koristi Gemini AI iz backend/server.py.
+2. preview i production EAS buildovi koriste tačan Render URL:
+   https://vylnax.onrender.com
+
+VAŽNO NA RENDERU:
+- Environment variable GEMINI_API_KEY mora sadržavati važeći Google Gemini API ključ.
+- USE_LOCAL_DB=1 može ostati za trenutni testni način rada.
+
+REDOSLIJED:
+1. Otvori VYLNAX_PRO_WORKING_FINAL u VS Code.
+2. Git add/commit/push cijelog projekta.
+3. Render: Manual Deploy -> Deploy latest commit.
+4. Sačekaj Live.
+5. Za APK: cd frontend pa eas build --platform android --profile preview
+6. Instaliraj APK preko postojeće aplikacije (Ažuriraj).
+
+Napomena: besplatna Gemini kvota može vratiti 429 Too Many Requests. To nije kvar aplikacije.

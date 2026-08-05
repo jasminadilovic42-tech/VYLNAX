@@ -1,0 +1,40 @@
+VYLNAX PRO – POKRETANJE APLIKACIJE
+
+OPCIJA A – NA TELEFONU PREKO EXPO GO
+1. Raspakuj ovaj ZIP.
+2. Otvori cijeli folder u Visual Studio Code.
+3. Otvori Terminal i izvrši:
+   cd frontend
+   npm install
+   npx expo start -c
+4. Na telefonu instaliraj Expo Go i skeniraj QR kod.
+5. Telefon i računar trebaju biti na istoj Wi-Fi mreži.
+
+Frontend je podešen na postojeći backend:
+https://vylnax.onrender.com
+
+OPCIJA B – NOVI ANDROID APK (potrebno zbog push obavijesti)
+1. U frontend folderu:
+   npm install
+   npx expo install expo-notifications expo-device
+   npx eas-cli login
+   eas build --platform android --profile preview
+2. Preuzmi APK preko EAS linka i instaliraj ga na telefon.
+
+OBJAVA IZMJENA U VEĆ INSTALIRANU APLIKACIJU
+Ako telefon već ima kompatibilan Phase 4 ili noviji build:
+   cd frontend
+   npm install
+   eas update --channel production --message "VYLNAX PRO 2.0 AI Care Assistant"
+
+BACKEND NA RENDERU
+Na Renderu mora biti objavljen sadržaj foldera backend i postavljene Environment Variables:
+GEMINI_API_KEY=<tvoj Gemini ključ>
+USE_LOCAL_DB=true   (za demo) ili MONGO_URL i DB_NAME za cloud bazu
+APP_TIMEZONE=Europe/Berlin
+CRON_SECRET=<dugačak tajni tekst>
+
+VAŽNO
+- Ne stavljaj pravi GEMINI_API_KEY u frontend niti u ZIP.
+- Za push obavijesti koristi novi APK/preview build, ne samo Expo Go.
+- Bluetooth/Wi-Fi povezivanje je trenutno softverski/simulacijski sloj dok ne postoji firmware fizičkog uređaja.

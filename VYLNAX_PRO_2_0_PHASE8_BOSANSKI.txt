@@ -1,0 +1,27 @@
+VYLNAX PRO 2.0 – PHASE 8: AI CARE ASSISTANT
+
+DODANO:
+- AI razgovori su odvojeni po pacijentu; historija više ne miješa različite pacijente.
+- AI u svakom odgovoru dobija kontekst aktivnog pacijenta: lijekove, alergije, posljednje vitalne vrijednosti, dnevnik, navike i potvrđene KI-Merkpunkte.
+- Novi ekran KI-Merkpunkte. Doktor/PFK mogu spremiti potvrđene dugoročne podatke, pacijent i rodbina ih mogu pregledati.
+- Kada korisnik u razgovoru opiše mogući simptom, aplikacija nudi dugme „Als Symptom dokumentieren“. Podatak se ne sprema automatski bez potvrde.
+- Simptom se sprema u postojeći pacijentov dnevnik i ulazi u kasniju AI analizu.
+- Novi pregled aktivnog pacijentovog konteksta na AI ekranu.
+
+NOVE API RUTE:
+GET  /api/assistant/history?patient_id=...
+DELETE /api/assistant/history?patient_id=...
+GET  /api/patients/{patient_id}/assistant-context
+POST /api/patients/{patient_id}/assistant-memory
+
+SIGURNOST:
+- AI i dalje ne smije postavljati dijagnozu niti mijenjati terapiju.
+- Medicinske tvrdnje i simptomi se ne pretvaraju automatski u potvrđene činjenice.
+- KI-Merkpunkte mogu mijenjati samo doktor i PFK kroz postojeću access-token zaštitu.
+
+OBJAVLJIVANJE:
+1. Objaviti backend/server.py na Renderu.
+2. Frontend poslati preko EAS Updatea:
+   eas update --channel production --message "VYLNAX PRO 2.0 Phase 8 AI Care Assistant"
+
+Nisu dodani novi native paketi, pa novi APK nije potreban ako je Phase 4 build već instaliran.

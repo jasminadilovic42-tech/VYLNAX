@@ -1,0 +1,14 @@
+VYLNAX AI - SPREMNO ZA UPLOAD
+
+Uradjeno:
+- backend/server.py: pravi Gemini AI na /api/assistant/chat
+- automatski retry i fallback kroz vise Gemini modela
+- odgovor se vraca i ako spremanje historije ne uspije
+- frontend koristi https://vylnax.onrender.com
+- EXPO_USE_FAST_RESOLVER=0
+- API kljuc nije u ZIP-u; ostaje na Renderu kao GEMINI_API_KEY
+
+Render postavke:
+Root Directory: backend
+Build Command: pip install -r requirements.txt
+Start Command: python server.py

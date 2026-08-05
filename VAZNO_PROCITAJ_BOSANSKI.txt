@@ -1,0 +1,25 @@
+VYLNAX – POPRAVLJENA APK VERZIJA
+
+Pronađen je stvarni uzrok ponavljanja grešaka:
+1. Projekat je imao i yarn.lock i package-lock.json.
+2. package.json je prisiljavao Yarn 1.
+3. Oba lock fajla sadržavala su privatne adrese paketa iz internog razvojnog okruženja, koje Expo EAS server ne može otvoriti.
+4. Zato EAS nije pouzdano instalirao expo-router i zatim je padao na “Read app config”.
+
+Šta je popravljeno:
+- uklonjen yarn.lock
+- uklonjen packageManager=yarn
+- uklonjena interna preinstall zaštita
+- package-lock.json prebačen na javni npm registry
+- dodat ispravan babel.config.js
+- uklonjen nepotreban expo-router/babel dodatak
+- dodat BUILD_APK_CISTO.bat za lokalnu provjeru prije EAS slanja
+
+KAKO POKRENUTI:
+1. Raspakuj ovaj ZIP u potpuno NOVI folder.
+2. Ne kopiraj stare node_modules, yarn.lock niti babel.config.js iz drugih kopija.
+3. Dvaput klikni BUILD_APK_CISTO.bat.
+4. Prvi korak može trajati nekoliko minuta.
+5. EAS build se pokreće tek nakon što lokalna instalacija i Expo konfiguracija prođu.
+
+Ne pokreći više build iz stare kopije projekta.

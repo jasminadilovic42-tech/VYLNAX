@@ -1,0 +1,27 @@
+VYLNAX PRO – PIN PROFILI I SPREMANJE OSOBA
+
+DODANO:
+- Pri pokretanju aplikacije prvo se bira ko se prijavljuje.
+- Nakon izbora osobe unosi se PIN.
+- Pacijent: početni PIN 0000.
+- Doktor: početni PIN 1111.
+- Pflegefachkraft (PFK): početni PIN 2222.
+- Rodbina / Angehörige: početni PIN 3333.
+- Novi pacijent, doktor, PFK ili član rodbine automatski dobija profil za prijavu.
+- Dodan ekran "Person hinzufügen" za spremanje sve četiri vrste osoba.
+- Doktor, PFK i rodbina povezuju se s trenutno izabranim pacijentom.
+- Pacijent i rodbina imaju samo pregled terapije.
+- Samo doktor i PFK mogu dodavati ili brisati lijekove.
+- Zaštita nije samo vizuelna: backend odbija nedozvoljenu izmjenu terapije.
+- Nakon 5 pogrešnih PIN pokušaja profil se zaključava 15 minuta.
+
+VAŽNO ZA UPLOAD:
+1. Prvo objaviti novi backend/server.py na Renderu zajedno s postojećom bazom lijekova.
+2. Zatim objaviti frontend preko EAS Update.
+3. Za postojeće osobe backend pri narednoj prijavi automatski kreira PIN profile.
+
+EAS UPDATE:
+eas update --channel production --message "PIN-Profile und Rollenrechte integriert"
+
+NAPOMENA:
+Ovi zajednički početni PIN-ovi su namijenjeni razvoju i demonstraciji. Prije stvarnog pilot-projekta treba dodati obaveznu promjenu PIN-a za svaku osobu.
