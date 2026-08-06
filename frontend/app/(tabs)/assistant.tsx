@@ -692,7 +692,7 @@ export default function Assistant() {
 
     if (
       voicePhaseRef.current === "command" &&
-      code === "no-speech" 
+      (code === "no-speech" || code === "speech-timeout")
     ) {
       speak(
         voiceLanguageRef.current === "bs-BA"
