@@ -107,7 +107,7 @@ function prepareTextForSpeech(
     .replace(/\s+/g, " ")
     .trim();
 
-  if (language === "hr-HR") {
+  if (language === "bs-BA") {
     return common
       .replace(/\bRR\b/gi, "krvni pritisak")
       .replace(/\bSYS\b/gi, "sistolička vrijednost")
@@ -429,9 +429,11 @@ export default function Assistant() {
         }
       } catch (error) {
         const fallback =
-          voiceLanguageRef.current === "hr-HR"
+          voiceLanguageRef.current === "bs-BA"
             ? "Izvinite, asistent trenutno nije dostupan. Molim pokušajte ponovo."
-            : "Entschuldigung, der Assistent ist gerade nicht erreichbar. Bitte versuchen Sie es erneut.";
+            : voiceLanguageRef.current === "en-US"
+              ? "Sorry, the assistant is currently unavailable. Please try again."
+              : "Entschuldigung, der Assistent ist gerade nicht erreichbar. Bitte versuchen Sie es erneut.";
 
         setMessages((current) => [
           ...current,
@@ -552,7 +554,7 @@ export default function Assistant() {
 
     stopRecognition(true);
     speak(
-      voiceLanguageRef.current === "hr-HR"
+      voiceLanguageRef.current === "bs-BA"
         ? "Zdravo, tu sam. Kako mogu pomoći?"
         : "Hallo, ich bin da. Wie kann ich helfen?",
       {
@@ -600,7 +602,7 @@ export default function Assistant() {
         stopRecognition(true);
         setRecognizedText("");
         speak(
-          voiceLanguageRef.current === "hr-HR"
+          voiceLanguageRef.current === "bs-BA"
             ? "Zdravo, tu sam. Kako mogu pomoći?"
             : "Hallo, ich bin da. Wie kann ich helfen?",
           {
@@ -635,7 +637,7 @@ export default function Assistant() {
         setVoiceMode(false);
         setRecognizedText("");
         speak(
-          voiceLanguageRef.current === "hr-HR"
+          voiceLanguageRef.current === "bs-BA"
             ? "Nema na čemu. Vidimo se kasnije."
             : "Sehr gern. Bis später.",
           {
@@ -656,7 +658,7 @@ export default function Assistant() {
 
     if (voicePhaseRef.current === "command") {
       speak(
-        voiceLanguageRef.current === "hr-HR"
+        voiceLanguageRef.current === "bs-BA"
           ? "Nisam vas razumio. Molim ponovite pitanje."
           : "Ich habe Sie nicht verstanden. Bitte wiederholen Sie die Frage.",
         {
@@ -690,10 +692,10 @@ export default function Assistant() {
 
     if (
       voicePhaseRef.current === "command" &&
-      (code === "no-speech" || code === "speech-timeout")
+      code === "no-speech" 
     ) {
       speak(
-        voiceLanguageRef.current === "hr-HR"
+        voiceLanguageRef.current === "bs-BA"
           ? "Nisam ništa čuo. Molim govorite ponovo."
           : "Ich habe nichts gehört. Bitte sprechen Sie erneut.",
         {
@@ -785,6 +787,14 @@ export default function Assistant() {
     : "Noch keine Messung";
 
   
+
+  const isBosnian = voiceLanguage === "bs-BA";
+  const isEnglish = voiceLanguage === "en-US";
+  const suggestions = isBosnian
+    ? SUGGESTIONS_BS
+    : isEnglish
+      ? SUGGESTIONS_EN
+      : SUGGESTIONS_DE;
 
   const assistantHealthScore = intelligence
     ? Math.max(0, Math.min(100, 100 - intelligence.risk_score))
@@ -888,7 +898,7 @@ export default function Assistant() {
 
       <View style={styles.languageBar}>
         <Text style={styles.languageLabel}>
-          {voiceLanguage === "hr-HR" ? "Jezik glasa:" : "Sprache:"}
+          {voiceLanguage === "bs-BA" ? "Jezik glasa:" : voiceLanguage === "en-US" ? "Voice language:" : "Sprache:"}
         </Text>
 
         <Pressable
@@ -948,7 +958,7 @@ export default function Assistant() {
       {voiceMode && recognizedText ? (
         <View style={styles.liveTranscript}>
           <Ionicons
-            name="waveform"
+            name="pulse-outline"
             size={17}
             color={colors.brandPrimary}
           />
@@ -1057,7 +1067,7 @@ export default function Assistant() {
                 style={styles.memoryLink}
               >
                 <Ionicons
-                  name="brain-outline"
+                  name="bulb-outline"
                   size={16}
                   color={colors.brandPrimary}
                 />
