@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -91,24 +92,24 @@ function prepareTextForSpeech(
   text: string,
   language: VoiceLanguage
 ): string {
-  const common = text
+  const clean = text
     .replace(/\bVYLNAX\s*PRO\b/gi, "Vilnaks Pro")
     .replace(/\bVYLNAX\b/gi, "Vilnaks")
-    .replace(/\bSpO[₂2]\b/gi, "saturacija kisika")
-    .replace(/\bmg\/d[lL]\b/gi, "miligram po decilitru")
-    .replace(/\bmmol\/[lL]\b/gi, "milimol po litru")
-    .replace(/\bmg\b/gi, "miligram")
-    .replace(/\bµg\b/gi, "mikrogram")
-    .replace(/\bml\b/gi, "mililitar")
-    .replace(/\bkg\b/gi, "kilogram")
-    .replace(/°C/gi, " stepeni Celzijusa")
-    .replace(/%/g, " posto")
     .replace(/[•●▪*_#`]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
-  if (language === "hr-HR") {
-    return common
+  if (language === "bs-BA") {
+    return clean
+      .replace(/\bSpO[₂2]\b/gi, "saturacija kisika")
+      .replace(/\bmg\/d[lL]\b/gi, "miligram po decilitru")
+      .replace(/\bmmol\/[lL]\b/gi, "milimol po litru")
+      .replace(/\bmg\b/gi, "miligram")
+      .replace(/\bµg\b/gi, "mikrogram")
+      .replace(/\bml\b/gi, "mililitar")
+      .replace(/\bkg\b/gi, "kilogram")
+      .replace(/°C/gi, " stepeni Celzijusa")
+      .replace(/%/g, " posto")
       .replace(/\bRR\b/gi, "krvni pritisak")
       .replace(/\bSYS\b/gi, "sistolička vrijednost")
       .replace(/\bDIA\b/gi, "dijastolička vrijednost")
@@ -118,7 +119,36 @@ function prepareTextForSpeech(
       .replace(/\b(\d{1,2}):(\d{2})\b/g, "$1 sati i $2 minuta");
   }
 
-  return common
+  if (language === "en-US") {
+    return clean
+      .replace(/\bSpO[₂2]\b/gi, "oxygen saturation")
+      .replace(/\bmg\/d[lL]\b/gi, "milligrams per deciliter")
+      .replace(/\bmmol\/[lL]\b/gi, "millimoles per liter")
+      .replace(/\bmg\b/gi, "milligrams")
+      .replace(/\bµg\b/gi, "micrograms")
+      .replace(/\bml\b/gi, "milliliters")
+      .replace(/\bkg\b/gi, "kilograms")
+      .replace(/°C/gi, " degrees Celsius")
+      .replace(/%/g, " percent")
+      .replace(/\bRR\b/gi, "blood pressure")
+      .replace(/\bSYS\b/gi, "systolic value")
+      .replace(/\bDIA\b/gi, "diastolic value")
+      .replace(/\bmmHg\b/gi, "millimeters of mercury")
+      .replace(/\bbpm\b/gi, "beats per minute")
+      .replace(/\b(\d{2,3})\s*\/\s*(\d{2,3})\b/g, "$1 over $2")
+      .replace(/\b(\d{1,2}):(\d{2})\b/g, "$1 $2");
+  }
+
+  return clean
+    .replace(/\bSpO[₂2]\b/gi, "Sauerstoffsättigung")
+    .replace(/\bmg\/d[lL]\b/gi, "Milligramm pro Deziliter")
+    .replace(/\bmmol\/[lL]\b/gi, "Millimol pro Liter")
+    .replace(/\bmg\b/gi, "Milligramm")
+    .replace(/\bµg\b/gi, "Mikrogramm")
+    .replace(/\bml\b/gi, "Milliliter")
+    .replace(/\bkg\b/gi, "Kilogramm")
+    .replace(/°C/gi, " Grad Celsius")
+    .replace(/%/g, " Prozent")
     .replace(/\bRR\b/gi, "Blutdruck")
     .replace(/\bSYS\b/gi, "systolischer Wert")
     .replace(/\bDIA\b/gi, "diastolischer Wert")
@@ -126,6 +156,174 @@ function prepareTextForSpeech(
     .replace(/\bbpm\b/gi, "Schläge pro Minute")
     .replace(/\b(\d{2,3})\s*\/\s*(\d{2,3})\b/g, "$1 zu $2")
     .replace(/\b(\d{1,2}):(\d{2})\b/g, "$1 Uhr $2");
+}
+
+type CallTarget = "relative" | "doctor" | "pfk" | "emergency";
+
+function detectCallTarget(text: string): CallTarget | null {
+  // Normalizujemo govor tako da njemački/Bosanski dijakritici i
+  // različite formulacije iz speech recognitiona ne mogu poslati
+  // telefonsku naredbu greškom prema AI backendu.
+  const original = text.toLowerCase().trim();
+  const value = original
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[.,!?;:()[\]{}"'`´]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const hasCallVerb =
+    /(pozov|zov|nazov|kontaktir|anruf|ruf|wahl|waehl|call|phone|dial|telefonier)/i.test(
+      value
+    );
+
+  const isEmergency =
+    /\b112\b/.test(value) ||
+    /(hitn|notruf|rettungsdienst|emergency|ambulance)/i.test(value);
+
+  // 112 mora raditi i kada korisnik samo kaže "112".
+  if (isEmergency && (hasCallVerb || /\b112\b/.test(value))) {
+    return "emergency";
+  }
+
+  if (!hasCallVerb) return null;
+
+  // Angehörige / Familie / rodbina
+  if (
+    /(angehor|angehoer|famil|rodbin|porodic|relative|family|emergency contact|notfallkontakt)/i.test(
+      value
+    )
+  ) {
+    return "relative";
+  }
+
+  // Hausarzt / Arzt / doktor
+  if (
+    /(hausarzt|arzt|arztin|doktor|doctor|family doctor|general practitioner|kucn.*doktor)/i.test(
+      value
+    )
+  ) {
+    return "doctor";
+  }
+
+  // PFK / Pflegefachkraft / zadužena medicinska sestra
+  if (
+    /(pfk|pflegefachkraft|pflegekraft|pflege|zaduzen|nurse|caregiver|assigned nurse)/i.test(
+      value
+    )
+  ) {
+    return "pfk";
+  }
+
+  return null;
+}
+
+function normalizePhoneNumber(value: unknown): string | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const normalized = raw.replace(/[^\d+#*]/g, "");
+  const digits = normalized.replace(/\D/g, "");
+  if (digits.length < 3) return null;
+
+  return normalized;
+}
+
+function phoneFromObject(
+  value: unknown,
+  target: Exclude<CallTarget, "emergency">,
+  path = "",
+  depth = 0
+): string | null {
+  if (!value || depth > 5) return null;
+
+  const targetWords: Record<Exclude<CallTarget, "emergency">, string[]> = {
+    relative: [
+      "relative",
+      "relatives",
+      "family",
+      "familie",
+      "angehor",
+      "angehör",
+      "rodbin",
+      "porod",
+      "emergency_contact",
+      "notfallkontakt",
+    ],
+    doctor: [
+      "doctor",
+      "arzt",
+      "hausarzt",
+      "family_doctor",
+      "general_practitioner",
+      "gp",
+    ],
+    pfk: [
+      "pfk",
+      "pflege",
+      "nurse",
+      "caregiver",
+      "assigned_nurse",
+      "care_team",
+    ],
+  };
+
+  const phoneWords = [
+    "phone",
+    "phone_number",
+    "mobile",
+    "mobile_number",
+    "telephone",
+    "telefon",
+    "tel",
+    "handy",
+    "number",
+    "nummer",
+  ];
+
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i += 1) {
+      const found = phoneFromObject(value[i], target, `${path}.${i}`, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  if (typeof value !== "object") return null;
+
+  const objectValue = value as Record<string, unknown>;
+  const descriptor = Object.entries(objectValue)
+    .filter(([, entry]) => typeof entry === "string" || typeof entry === "number")
+    .map(([key, entry]) => `${key}:${String(entry)}`)
+    .join(" ")
+    .toLowerCase();
+
+  for (const [key, entry] of Object.entries(objectValue)) {
+    const nextPath = `${path}.${key}`.toLowerCase();
+    const targetMatch = targetWords[target].some(
+      (word) => nextPath.includes(word) || descriptor.includes(word)
+    );
+    const phoneMatch = phoneWords.some((word) => key.toLowerCase().includes(word));
+
+    if (targetMatch && phoneMatch) {
+      const phone = normalizePhoneNumber(entry);
+      if (phone) return phone;
+    }
+  }
+
+  for (const [key, entry] of Object.entries(objectValue)) {
+    const nextPath = `${path}.${key}`;
+    const found = phoneFromObject(entry, target, nextPath, depth + 1);
+    if (found) {
+      const lowerPath = nextPath.toLowerCase();
+      if (targetWords[target].some((word) => lowerPath.includes(word))) {
+        return found;
+      }
+    }
+  }
+
+  return null;
 }
 
 export default function Assistant() {
@@ -144,6 +342,7 @@ export default function Assistant() {
   const [recognizedText, setRecognizedText] = useState("");
   const [savingJournal, setSavingJournal] = useState<number | null>(null);
   const [voiceLanguage, setVoiceLanguage] = useState<VoiceLanguage>("de-DE");
+  const [preferredVoiceId, setPreferredVoiceId] = useState<string | undefined>(undefined);
 
   const scrollRef = useRef<ScrollView>(null);
   const voiceModeRef = useRef(false);
@@ -153,7 +352,61 @@ export default function Assistant() {
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intentionalAbortRef = useRef(false);
   const lastFinalTextRef = useRef("");
+  const lastAssistantMessageRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   const voiceLanguageRef = useRef<VoiceLanguage>("de-DE");
+
+
+  const isBosnian = voiceLanguage === "bs-BA";
+  const suggestions =
+    voiceLanguage === "bs-BA"
+      ? SUGGESTIONS_BS
+      : voiceLanguage === "en-US"
+        ? SUGGESTIONS_EN
+        : SUGGESTIONS_DE;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const chooseVoice = async () => {
+      try {
+        const voices = await Speech.getAvailableVoicesAsync();
+        const prefix = voiceLanguage.split("-")[0].toLowerCase();
+
+        const exact = voices.filter(
+          (voice) => voice.language?.toLowerCase() === voiceLanguage.toLowerCase()
+        );
+        const sameLanguage = voices.filter((voice) =>
+          voice.language?.toLowerCase().startsWith(prefix)
+        );
+        const candidates = exact.length > 0 ? exact : sameLanguage;
+
+        // Prefer the most human-sounding voice already installed on the phone.
+        // This stays OTA-safe: no new native TTS library is required.
+        const selected =
+          candidates.find((voice) =>
+            /natural|neural|premium|enhanced|google|samsung/i.test(
+              `${String((voice as any).name || "")} ${String((voice as any).quality || "")}`
+            )
+          ) ||
+          candidates.find(
+            (voice) => String((voice as any).quality || "").toLowerCase() === "enhanced"
+          ) ||
+          candidates[0];
+
+        if (!cancelled) {
+          setPreferredVoiceId(selected?.identifier);
+        }
+      } catch {
+        if (!cancelled) setPreferredVoiceId(undefined);
+      }
+    };
+
+    void chooseVoice();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [voiceLanguage]);
 
   useEffect(() => {
     activePatientRef.current = activePatient;
@@ -266,8 +519,16 @@ export default function Assistant() {
 
       Speech.speak(spokenText, {
         language: voiceLanguageRef.current,
-        rate: 0.88,
-        pitch: 1.03,
+        voice: preferredVoiceId,
+        // Slightly slower and softer than the system default so VYLNAX sounds
+        // conversational instead of reading text like a machine.
+        rate:
+          voiceLanguageRef.current === "bs-BA"
+            ? 0.90
+            : voiceLanguageRef.current === "de-DE"
+              ? 0.91
+              : 0.92,
+        pitch: 0.98,
         onDone: () => {
           if (!voiceModeRef.current) {
             setPhase("off");
@@ -298,7 +559,7 @@ export default function Assistant() {
         },
       });
     },
-    [setPhase, startCommandListening, startWakeListening, stopRecognition]
+    [preferredVoiceId, setPhase, startCommandListening, startWakeListening, stopRecognition]
   );
 
   const loadHistory = useCallback(async () => {
@@ -364,6 +625,221 @@ export default function Assistant() {
     }
   }, []);
 
+  const appendAssistantMessage = useCallback(
+    (content: string, fromVoice = false) => {
+      const normalized = content.trim();
+      const now = Date.now();
+
+      // Prevent the same local voice/call response from being inserted twice
+      // when Android emits duplicate final speech events.
+      if (
+        normalized &&
+        lastAssistantMessageRef.current.text === normalized &&
+        now - lastAssistantMessageRef.current.at < 1800
+      ) {
+        return;
+      }
+
+      lastAssistantMessageRef.current = { text: normalized, at: now };
+
+      setMessages((current) => [
+        ...current,
+        { role: "assistant", content: normalized },
+      ]);
+
+      if (fromVoice && voiceModeRef.current) {
+        speak(normalized, { thenWake: true });
+      }
+    },
+    [speak]
+  );
+
+  const resolveCallNumber = useCallback(
+    async (target: Exclude<CallTarget, "emergency">): Promise<string | null> => {
+      const patient = activePatientRef.current;
+      if (!patient) return null;
+
+      const localNumber = phoneFromObject(patient as any, target);
+      if (localNumber) return localNumber;
+
+      const candidatePaths = [
+        // Sicherheitskontakte are the canonical source for SOS/relative numbers.
+        `/patients/${patient.id}/safety-contacts`,
+        `/patients/${patient.id}/contacts`,
+        `/contacts?patient_id=${patient.id}`,
+        `/patients/${patient.id}/care-team`,
+      ];
+
+      for (const path of candidatePaths) {
+        try {
+          const data = await api<any>(path);
+          const found = phoneFromObject(data, target);
+          if (found) return found;
+        } catch {
+          // Endpoint nije dostupan u svakoj verziji backenda; pokušavamo sljedeći.
+        }
+      }
+
+      return null;
+    },
+    []
+  );
+
+  const confirmEmergencyCall = useCallback(
+    () =>
+      new Promise<boolean>((resolve) => {
+        const bosnian = voiceLanguageRef.current === "bs-BA";
+        const english = voiceLanguageRef.current === "en-US";
+
+        Alert.alert(
+          bosnian
+            ? "Pozvati 112?"
+            : english
+              ? "Call 112?"
+              : "112 anrufen?",
+          bosnian
+            ? "VYLNAX će otvoriti hitni poziv. Poziv se pokreće tek nakon vaše potvrde."
+            : english
+              ? "VYLNAX will open the emergency call. The call starts only after your confirmation."
+              : "VYLNAX öffnet den Notruf. Der Anruf wird erst nach Ihrer Bestätigung gestartet.",
+          [
+            {
+              text: bosnian ? "Odustani" : english ? "Cancel" : "Abbrechen",
+              style: "cancel",
+              onPress: () => resolve(false),
+            },
+            {
+              text: bosnian ? "Pozovi 112" : english ? "Call 112" : "112 anrufen",
+              style: "destructive",
+              onPress: () => resolve(true),
+            },
+          ],
+          { cancelable: true, onDismiss: () => resolve(false) }
+        );
+      }),
+    []
+  );
+
+  const startPhoneCall = useCallback(async (number: string) => {
+    const safeNumber = normalizePhoneNumber(number);
+    if (!safeNumber) {
+      throw new Error("INVALID_PHONE_NUMBER");
+    }
+
+    const url = `tel:${safeNumber}`;
+    await Linking.openURL(url);
+  }, []);
+
+  const handleCallIntent = useCallback(
+    async (
+      target: CallTarget,
+      fromVoice = false
+    ): Promise<boolean> => {
+      const language = voiceLanguageRef.current;
+      const bosnian = language === "bs-BA";
+      const english = language === "en-US";
+
+      if (target === "emergency") {
+        const confirmed = await confirmEmergencyCall();
+        if (!confirmed) {
+          appendAssistantMessage(
+            bosnian
+              ? "U redu. Neću zvati 112."
+              : english
+                ? "Okay. I won't call 112."
+                : "Alles klar. Ich rufe 112 nicht an.",
+            fromVoice
+          );
+          return true;
+        }
+
+        try {
+          await startPhoneCall("112");
+          appendAssistantMessage(
+            bosnian
+              ? "U redu, zovem 112."
+              : english
+                ? "Okay, calling 112."
+                : "Alles klar, ich rufe 112 an.",
+            fromVoice
+          );
+        } catch {
+          appendAssistantMessage(
+            bosnian
+              ? "Ne mogu otvoriti telefonski poziv na ovom uređaju."
+              : english
+                ? "I cannot open a phone call on this device."
+                : "Ich kann auf diesem Gerät keinen Telefonanruf öffnen.",
+            fromVoice
+          );
+        }
+        return true;
+      }
+
+      const label =
+        target === "relative"
+          ? bosnian
+            ? "rodbinu"
+            : english
+              ? "relative"
+              : "Angehörige"
+          : target === "doctor"
+            ? bosnian
+              ? "kućnog doktora"
+              : english
+                ? "family doctor"
+                : "Hausarzt"
+            : bosnian
+              ? "zaduženog PFK"
+              : english
+                ? "assigned nurse"
+                : "zuständige Pflegefachkraft";
+
+      const number = await resolveCallNumber(target);
+
+      if (!number) {
+        appendAssistantMessage(
+          bosnian
+            ? `Za ${label} nemam sačuvan broj. Dodajte ga u sigurnosne kontakte pacijenta.`
+            : english
+              ? `I don't have a saved number for the ${label}. Please add it to the patient's safety contacts.`
+              : `Für ${label} habe ich keine Telefonnummer. Bitte speichern Sie sie unter Sicherheitskontakte.`,
+          fromVoice
+        );
+        return true;
+      }
+
+      try {
+        await startPhoneCall(number);
+        appendAssistantMessage(
+          bosnian
+            ? `Naravno. Zovem ${label}.`
+            : english
+              ? `Of course. Calling the ${label}.`
+              : `Natürlich. Ich rufe ${label} an.`,
+          fromVoice
+        );
+      } catch {
+        appendAssistantMessage(
+          bosnian
+            ? `Broj za ${label} postoji, ali telefon nije mogao pokrenuti poziv.`
+            : english
+              ? `The number is saved, but the phone couldn't start the call.`
+              : `Die Nummer ist gespeichert, aber der Anruf konnte nicht gestartet werden.`,
+          fromVoice
+        );
+      }
+
+      return true;
+    },
+    [
+      appendAssistantMessage,
+      confirmEmergencyCall,
+      resolveCallNumber,
+      startPhoneCall,
+    ]
+  );
+
   const send = useCallback(
     async (text: string, fromVoice = false) => {
       const patient = activePatientRef.current;
@@ -379,6 +855,24 @@ export default function Assistant() {
         ...current,
         { role: "user", content: msg },
       ]);
+
+      const callTarget = detectCallTarget(msg);
+      if (callTarget) {
+        if (fromVoice) {
+          stopRecognition(true);
+          setPhase("processing");
+        }
+
+        await handleCallIntent(callTarget, fromVoice);
+
+        if (fromVoice && voiceModeRef.current && voicePhaseRef.current !== "speaking") {
+          restartTimerRef.current = setTimeout(() => {
+            void startWakeListening();
+          }, RESTART_DELAY_MS);
+        }
+        return;
+      }
+
       setLoading(true);
       loadingRef.current = true;
 
@@ -412,26 +906,37 @@ export default function Assistant() {
         });
          
 
+        const reply =
+          typeof res?.reply === "string" && res.reply.trim()
+            ? res.reply.trim()
+            : voiceLanguageRef.current === "bs-BA"
+              ? "Tu sam. Molim pokušaj ponovo."
+              : voiceLanguageRef.current === "en-US"
+                ? "I'm here. Please try again."
+                : "Ich bin da. Bitte versuche es noch einmal.";
+
         setMessages((current) => [
           ...current,
           {
             role: "assistant",
-            content: res.reply,
-            suggest_journal: res.suggest_journal,
-            source_text: res.source_text,
+            content: reply,
+            suggest_journal: res?.suggest_journal,
+            source_text: res?.source_text,
           },
         ]);
 
         void loadContextOnly();
 
         if (voiceModeRef.current && fromVoice) {
-          speak(res.reply, { thenWake: true });
+          speak(reply, { thenWake: true });
         }
       } catch (error) {
         const fallback =
-          voiceLanguageRef.current === "hr-HR"
-            ? "Izvinite, asistent trenutno nije dostupan. Molim pokušajte ponovo."
-            : "Entschuldigung, der Assistent ist gerade nicht erreichbar. Bitte versuchen Sie es erneut.";
+          voiceLanguageRef.current === "bs-BA"
+            ? "Izvini, trenutno ne mogu doći do asistenta. Pokušaj ponovo za trenutak."
+            : voiceLanguageRef.current === "en-US"
+              ? "Sorry, I can’t reach the assistant right now. Please try again in a moment."
+              : "Entschuldigung, der Assistent ist gerade nicht erreichbar. Bitte versuchen Sie es erneut.";
 
         setMessages((current) => [
           ...current,
@@ -461,6 +966,7 @@ export default function Assistant() {
       }
     },
     [
+      handleCallIntent,
       loadContextOnly,
       setPhase,
       speak,
@@ -552,9 +1058,11 @@ export default function Assistant() {
 
     stopRecognition(true);
     speak(
-      voiceLanguageRef.current === "hr-HR"
-        ? "Zdravo, tu sam. Kako mogu pomoći?"
-        : "Hallo, ich bin da. Wie kann ich helfen?",
+      voiceLanguageRef.current === "bs-BA"
+        ? "Zdravo, tu sam. Reci mi kako mogu pomoći."
+        : voiceLanguageRef.current === "en-US"
+          ? "Hi, I’m here. How can I help?"
+          : "Hallo, ich bin da. Wie kann ich helfen?",
       {
         thenListenForCommand: true,
         thenWake: false,
@@ -600,9 +1108,11 @@ export default function Assistant() {
         stopRecognition(true);
         setRecognizedText("");
         speak(
-          voiceLanguageRef.current === "hr-HR"
-            ? "Zdravo, tu sam. Kako mogu pomoći?"
-            : "Hallo, ich bin da. Wie kann ich helfen?",
+          voiceLanguageRef.current === "bs-BA"
+            ? "Zdravo, tu sam. Reci mi kako mogu pomoći."
+            : voiceLanguageRef.current === "en-US"
+              ? "Hi, I’m here. How can I help?"
+              : "Hallo, ich bin da. Wie kann ich helfen?",
           {
             thenListenForCommand: true,
             thenWake: false,
@@ -635,7 +1145,7 @@ export default function Assistant() {
         setVoiceMode(false);
         setRecognizedText("");
         speak(
-          voiceLanguageRef.current === "hr-HR"
+          voiceLanguageRef.current === "bs-BA"
             ? "Nema na čemu. Vidimo se kasnije."
             : "Sehr gern. Bis später.",
           {
@@ -656,7 +1166,7 @@ export default function Assistant() {
 
     if (voicePhaseRef.current === "command") {
       speak(
-        voiceLanguageRef.current === "hr-HR"
+        voiceLanguageRef.current === "bs-BA"
           ? "Nisam vas razumio. Molim ponovite pitanje."
           : "Ich habe Sie nicht verstanden. Bitte wiederholen Sie die Frage.",
         {
@@ -668,7 +1178,7 @@ export default function Assistant() {
   });
 
   useSpeechRecognitionEvent("error", (event) => {
-    const code = event.error || "unknown";
+    const code = String(event.error || "unknown");
 
     if (code === "aborted" || intentionalAbortRef.current) {
       intentionalAbortRef.current = false;
@@ -693,7 +1203,7 @@ export default function Assistant() {
       (code === "no-speech" || code === "speech-timeout")
     ) {
       speak(
-        voiceLanguageRef.current === "hr-HR"
+        voiceLanguageRef.current === "bs-BA"
           ? "Nisam ništa čuo. Molim govorite ponovo."
           : "Ich habe nichts gehört. Bitte sprechen Sie erneut.",
         {
@@ -888,7 +1398,7 @@ export default function Assistant() {
 
       <View style={styles.languageBar}>
         <Text style={styles.languageLabel}>
-          {voiceLanguage === "hr-HR" ? "Jezik glasa:" : "Sprache:"}
+          {voiceLanguage === "bs-BA" ? "Jezik glasa:" : "Sprache:"}
         </Text>
 
         <Pressable
@@ -948,7 +1458,7 @@ export default function Assistant() {
       {voiceMode && recognizedText ? (
         <View style={styles.liveTranscript}>
           <Ionicons
-            name="waveform"
+            name="mic-outline"
             size={17}
             color={colors.brandPrimary}
           />
@@ -956,6 +1466,51 @@ export default function Assistant() {
             {recognizedText}
           </Text>
         </View>
+      ) : null}
+
+      {activePatient ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.quickCallScroller}
+          contentContainerStyle={styles.quickCallBar}
+        >
+          <Pressable
+            onPress={() => void handleCallIntent("relative")}
+            style={styles.quickCallBtn}
+          >
+            <Ionicons name="people-outline" size={16} color={colors.brandPrimary} />
+            <Text style={styles.quickCallText}>
+              {isBosnian ? "Rodbina" : voiceLanguage === "en-US" ? "Relative" : "Angehörige"}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => void handleCallIntent("doctor")}
+            style={styles.quickCallBtn}
+          >
+            <Ionicons name="medkit-outline" size={16} color={colors.brandPrimary} />
+            <Text style={styles.quickCallText}>
+              {isBosnian ? "Kućni doktor" : voiceLanguage === "en-US" ? "Doctor" : "Hausarzt"}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => void handleCallIntent("pfk")}
+            style={styles.quickCallBtn}
+          >
+            <Ionicons name="person-circle-outline" size={16} color={colors.brandPrimary} />
+            <Text style={styles.quickCallText}>PFK</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => void handleCallIntent("emergency")}
+            style={[styles.quickCallBtn, styles.emergencyCallBtn]}
+          >
+            <Ionicons name="call-outline" size={16} color={colors.error} />
+            <Text style={[styles.quickCallText, { color: colors.error }]}>112</Text>
+          </Pressable>
+        </ScrollView>
       ) : null}
 
       <KeyboardAvoidingView
@@ -1057,7 +1612,7 @@ export default function Assistant() {
                 style={styles.memoryLink}
               >
                 <Ionicons
-                  name="brain-outline"
+                  name="bulb-outline"
                   size={16}
                   color={colors.brandPrimary}
                 />
@@ -1666,6 +2221,36 @@ const styles = StyleSheet.create({
   saveJournalText: {
     fontSize: 11,
     fontWeight: "700",
+    color: colors.brandPrimary,
+  },
+  quickCallScroller: {
+    flexGrow: 0,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  quickCallBar: {
+    gap: 8,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  quickCallBtn: {
+    minHeight: 38,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSecondary,
+  },
+  emergencyCallBtn: {
+    borderColor: colors.error,
+  },
+  quickCallText: {
+    fontSize: 11,
+    fontWeight: "800",
     color: colors.brandPrimary,
   },
   inputBar: {

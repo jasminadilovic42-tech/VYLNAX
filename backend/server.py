@@ -3901,7 +3901,150 @@ async def care_dashboard(days: int = 7, user=Depends(get_current_user), access=D
         "patients":rows,
         "disclaimer":"Priorisierungshilfe für Fachpersonal, keine Diagnose oder automatische medizinische Entscheidung."
     }
+# ============================================================
+# VYLNAX WUNDDOKUMENTATION
+# U server.py dodati model među ostale BaseModel klase,
+# a rute ispod funkcije _owns_patient().
+# Ne treba nova Python biblioteka.
+# ============================================================
 
+class WoundCreate(BaseModel):
+    wound_type: Optional[str] = None
+    location: Optional[str] = None
+    description: Optional[str] = None
+
+    length_cm: Optional[float] = None
+    width_cm: Optional[float] = None
+    depth_cm: Optional[float] = None
+    wound_stage: Optional[str] = None
+
+    wound_base: Optional[str] = None
+    wound_edge: Optional[str] = None
+    wound_surrounding_skin: Optional[str] = None
+
+    exudate_amount: Optional[str] = None
+    exudate_type: Optional[str] = None
+    odor: Optional[str] = None
+    pain_score: Optional[int] = None
+    infection_signs: Optional[str] = None
+
+    treatment: Optional[str] = None
+    dressing: Optional[str] = None
+
+    responsible_caregiver: Optional[str] = None
+    responsible_doctor: Optional[str] = None
+    wound_manager: Optional[str] = None
+
+    # Prototype: kompresovana JPEG fotografija se šalje kao data URL.
+    # Za produkciju prebaciti fotografije u object storage
+    # (S3-compatible / Azure Blob / sl.) i ovdje čuvati samo URL.
+    photo_data_url: Optional[str] = None
+
+    progress: Optional[str] = None
+    next_change: Optional[str] = None
+
+
+@api_router.get("/patients/{patient_id}/wounds")
+async def list_wounds(
+    patient_id: str,
+    user=Depends(get_current_user),
+):
+    await _owns_patient(user, patient_id)
+
+    docs = await db.wounds.find(
+        {"patient_id": patient_id},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(500)
+
+    return docs
+
+
+@api_router.post("/patients/{patient_id}/wounds")
+async def add_wound(
+    patient_id: str,
+    body: WoundCreate,
+    user=Depends(get_current_user),
+):
+    await _owns_patient(user, patient_id)
+
+    wound_data = body.model_dump()
+
+    # Osnovne validacije
+    if not str(wound_data.get("wound_type") or "").strip():
+        raise HTTPException(status_code=400, detail="Wundart fehlt")
+
+    if not str(wound_data.get("location") or "").strip():
+        raise HTTPException(status_code=400, detail="Wundlokalisation fehlt")
+
+    if not str(wound_data.get("description") or "").strip():
+        raise HTTPException(status_code=400, detail="Wundbeschreibung fehlt")
+
+    pain_score = wound_data.get("pain_score")
+    if pain_score is not None and (pain_score < 0 or pain_score > 10):
+        raise HTTPException(
+            status_code=400,
+            detail="Schmerzscore muss zwischen 0 und 10 liegen",
+        )
+
+    wound_id = uid("wound")
+    now = now_utc().isoformat()
+
+    doc = {
+        "_id": wound_id,
+        "id": wound_id,
+        "owner_id": user["user_id"],
+        "patient_id": patient_id,
+        **wound_data,
+        "created_by_user_id": user["user_id"],
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    await db.wounds.insert_one(doc)
+
+    result = dict(doc)
+    result.pop("_id", None)
+    return result
+
+
+@api_router.get("/wounds/{wound_id}")
+async def get_wound(
+    wound_id: str,
+    user=Depends(get_current_user),
+):
+    doc = await db.wounds.find_one(
+        {"id": wound_id, "owner_id": user["user_id"]},
+        {"_id": 0},
+    )
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="Wunddokumentation nicht gefunden")
+
+    await _owns_patient(user, doc["patient_id"])
+    return doc
+
+
+@api_router.delete("/wounds/{wound_id}")
+async def delete_wound(
+    wound_id: str,
+    user=Depends(get_current_user),
+):
+    doc = await db.wounds.find_one(
+        {"id": wound_id, "owner_id": user["user_id"]},
+        {"_id": 0},
+    )
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="Wunddokumentation nicht gefunden")
+
+    await _owns_patient(user, doc["patient_id"])
+
+    await db.wounds.delete_one({
+        "id": wound_id,
+        "owner_id": user["user_id"],
+    })
+
+    return {"ok": True}
 app.include_router(api_router)
 
 app.add_middleware(
