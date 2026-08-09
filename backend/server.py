@@ -15,6 +15,7 @@ import hmac
 import httpx
 import asyncio
 import sqlite3
+import json
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -264,7 +265,42 @@ class SosCreate(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     patient_id: Optional[str] = None
+    language: str = "de"
+def _normalize_ai_language(value: Optional[str]) -> str:
+    language = (value or "de").strip().lower()
 
+    if language in {"bs", "bs-ba", "bosanski", "bosnian"}:
+        return "bs"
+
+    if language in {"en", "en-us", "en-gb", "english"}:
+        return "en"
+
+    return "de"
+
+
+def _language_instruction(language: str) -> str:
+    if language == "bs":
+        return (
+            "Odgovaraj isključivo na bosanskom jeziku. "
+            "Koristi prirodan bosanski jezik i kratke, jasne rečenice. "
+            "Ne odgovaraj na njemačkom osim kada korisnik izričito traži prevod. "
+            "Medicinska pravila sigurnosti iz ostatka upute moraju uvijek ostati važeća."
+        )
+
+    if language == "en":
+        return (
+            "Answer exclusively in English. "
+            "Use short, clear and natural sentences. "
+            "Do not answer in German unless the user explicitly asks for a translation. "
+            "All medical safety rules in the rest of the prompt remain mandatory."
+        )
+
+    return (
+        "Antworte ausschließlich auf Deutsch. "
+        "Nutze kurze, klare und natürliche Sätze. "
+        "Antworte nur dann in einer anderen Sprache, wenn der Nutzer ausdrücklich um eine Übersetzung bittet. "
+        "Alle medizinischen Sicherheitsregeln bleiben verbindlich."
+    )
 
 class AllergyUpdate(BaseModel):
     allergies: List[str] = []
@@ -537,6 +573,92 @@ async def _ensure_access_user(owner_id: str, name: str, role: str, source_id: st
     return doc
 
 
+async def _ensure_demo_profiles(owner_id: str):
+    """Create stable first-run demo profiles for an empty or partially configured account.
+
+    The operation is idempotent: it can safely run on every login and will never
+    duplicate the Muster patient or Jasmin caregiver.
+    """
+    # Remove the mistakenly created Jasmin-as-patient login from earlier demo builds.
+    # The record is removed only when it has no medication or intake history.
+    mistaken_patients = await db.patients.find({
+        "owner_id": owner_id,
+        "name": "Jasmin Adilović",
+    }, {"_id": 0}).to_list(20)
+    for mistaken in mistaken_patients:
+        mistaken_id = mistaken.get("id")
+        has_medication = await db.medications.find_one({"patient_id": mistaken_id})
+        has_intake = await db.intakes.find_one({"patient_id": mistaken_id})
+        if mistaken_id and not has_medication and not has_intake:
+            await db.access_sessions.delete_many({"owner_id": owner_id, "patient_id": mistaken_id})
+            await db.access_users.delete_many({
+                "owner_id": owner_id,
+                "role": "patient",
+                "$or": [{"patient_id": mistaken_id}, {"source_id": mistaken_id}],
+            })
+            await db.patients.delete_one({"owner_id": owner_id, "id": mistaken_id})
+
+    patient = await db.patients.find_one({
+        "owner_id": owner_id,
+        "demo_key": "muster-patient",
+    }, {"_id": 0})
+    if not patient:
+        patient_id = uid("pat")
+        patient = {
+            "id": patient_id,
+            "owner_id": owner_id,
+            "name": "Max Mustermann",
+            "first_name": "Max",
+            "last_name": "Mustermann",
+            "birth_date": "1948-05-12",
+            "gender": "männlich",
+            "age": 78,
+            "care_grade": "Pflegegrad 2",
+            "room": "Musterzimmer 1",
+            "notes": "Musterpatient für die VYLNAX-PRO-Demonstration",
+            "is_self": False,
+            "demo_key": "muster-patient",
+            "created_at": now_utc().isoformat(),
+            "updated_at": now_utc().isoformat(),
+        }
+        await db.patients.insert_one(dict(patient))
+    patient_id = patient["id"]
+    await _ensure_access_user(owner_id, "Max Mustermann", "patient", patient_id, patient_id)
+
+    caregiver = await db.caregivers.find_one({
+        "owner_id": owner_id,
+        "demo_key": "jasmin-primary-caregiver",
+    }, {"_id": 0})
+    if not caregiver:
+        caregiver_id = uid("care")
+        caregiver = {
+            "id": caregiver_id,
+            "owner_id": owner_id,
+            "patient_id": patient_id,
+            "first_name": "Jasmin",
+            "last_name": "Adilović",
+            "professional_role": "Zuständige Pflegefachkraft",
+            "work_area": "Ambulante Pflege",
+            "organization": "VYLNAX PRO Demo",
+            "is_primary_caregiver": True,
+            "available_for_emergency": True,
+            "notes": "Primär zuständige PFK für den Musterpatienten",
+            "demo_key": "jasmin-primary-caregiver",
+            "created_at": now_utc().isoformat(),
+            "updated_at": now_utc().isoformat(),
+        }
+        await db.caregivers.insert_one(dict(caregiver))
+    else:
+        caregiver_id = caregiver["id"]
+        if caregiver.get("patient_id") != patient_id:
+            await db.caregivers.update_one(
+                {"id": caregiver_id, "owner_id": owner_id},
+                {"$set": {"patient_id": patient_id, "updated_at": now_utc().isoformat()}},
+            )
+    await _ensure_access_user(owner_id, "Jasmin Adilović", "caregiver", caregiver_id, patient_id)
+    return {"patient_id": patient_id, "caregiver_id": caregiver_id}
+
+
 async def _write_audit_log(
     owner_id: str,
     action: str,
@@ -712,6 +834,9 @@ async def create_session(req: SessionRequest):
             name = " ".join(filter(None, [person.get("title"), person.get("first_name"), person.get("last_name")])).strip()
             await _ensure_access_user(user_id, name or role.title(), role, person.get("id"), person.get("patient_id"))
 
+    # Always keep the first-run Muster patient and the assigned Jasmin PFK available.
+    await _ensure_demo_profiles(user_id)
+
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     return {"session_token": session_token, "user": user}
 
@@ -736,6 +861,14 @@ async def update_role(body: RoleUpdate, user=Depends(get_current_user)):
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"role": body.role}})
     return {"ok": True, "role": body.role}
 
+
+
+@api_router.post("/demo/seed")
+async def seed_demo_profiles(user=Depends(get_current_user)):
+    ids = await _ensure_demo_profiles(user["user_id"])
+    docs = await db.access_users.find({"owner_id": user["user_id"]}, {"_id": 0}).to_list(500)
+    docs.sort(key=lambda d: (d.get("role", ""), d.get("name", "")))
+    return {"ok": True, **ids, "access_users": [_public_access_user(doc) for doc in docs]}
 
 
 # ---------------- Access management ----------------
@@ -1938,7 +2071,23 @@ async def sos(body: SosCreate, user=Depends(get_current_user)):
 
 # ---------------- Medication Database ----------------
 @api_router.get("/med-database")
-async def med_database(q: str = "", user=Depends(get_current_user)):
+async def med_database(
+    q: str = "",
+    limit: int = 30,
+    offset: int = 0,
+):
+    query = q.strip()
+
+    if len(query) < 2:
+        return {
+            "items": [],
+            "limit": limit,
+            "offset": offset,
+            "has_more": False,
+        }
+
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
     query = q.strip()
     if len(query) < 2:
         return []
@@ -2013,28 +2162,349 @@ async def med_database(q: str = "", user=Depends(get_current_user)):
 
 
 # ---------------- AI Medication Assistant ----------------
+
+# ---------------- VYLNAX AI: glasovne radnje i medicinska sigurnost ----------------
+
+
+def _current_local_datetime_text():
+    local_now = datetime.now(ZoneInfo(APP_TIMEZONE))
+    weekday_names = [
+        "Montag", "Dienstag", "Mittwoch", "Donnerstag",
+        "Freitag", "Samstag", "Sonntag"
+    ]
+    month_names = [
+        "Januar", "Februar", "März", "April", "Mai", "Juni",
+        "Juli", "August", "September", "Oktober", "November", "Dezember"
+    ]
+    return (
+        f"{weekday_names[local_now.weekday()]}, der {local_now.day}. "
+        f"{month_names[local_now.month - 1]} {local_now.year}, "
+        f"{local_now.strftime('%H:%M')} Uhr"
+    )
+
+
+def _is_current_date_question(message: str):
+    value = (message or "").strip().lower()
+    patterns = (
+        "welcher tag ist heute",
+        "welches datum ist heute",
+        "wie spät ist es",
+        "wie spaet ist es",
+        "koji je danas dan",
+        "koji je datum danas",
+        "koliko je sati",
+    )
+    return any(pattern in value for pattern in patterns)
+
+SAVE_VITALS_INTENT = re.compile(
+    r"\b("
+    r"speicher(?:e|n)?|dokumentier(?:e|en)?|trag(?:e|en)?\s+ein|"
+    r"spremi|sačuvaj|sacuvaj|zapiši|zapisi|unesi|evidentiraj"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_voice_vitals(message: str):
+    """Prepoznaje vitalne vrijednosti iz njemačkih i bosanskih glasovnih naredbi."""
+    value = (message or "").strip()
+    result = {}
+
+    blood_pressure = re.search(
+        r"\b(?:rr|blutdruck|krvni\s+pritisak|pritisak)\s*"
+        r"(?:ist|je|beträgt|iznosi|:)?\s*"
+        r"(\d{2,3})\s*(?:/|zu|sa|na)\s*(\d{2,3})\b",
+        value,
+        re.IGNORECASE,
+    )
+    if blood_pressure:
+        result["blood_pressure"] = {
+            "systolic": int(blood_pressure.group(1)),
+            "diastolic": int(blood_pressure.group(2)),
+        }
+
+    pulse = re.search(
+        r"\b(?:puls|pulse)\s*(?:ist|je|beträgt|iznosi|:)?\s*(\d{2,3})\b",
+        value,
+        re.IGNORECASE,
+    )
+    if pulse:
+        result["pulse"] = float(pulse.group(1))
+
+    spo2 = re.search(
+        r"\b(?:spo2|sp\s*o\s*2|sauerstoffsättigung|sauerstoff|saturacija)\s*"
+        r"(?:ist|je|beträgt|iznosi|:)?\s*(\d{2,3})(?:\s*%)?\b",
+        value,
+        re.IGNORECASE,
+    )
+    if spo2:
+        result["spo2"] = float(spo2.group(1))
+
+    temperature = re.search(
+        r"\b(?:temperatur|temperature|temperatura)\s*"
+        r"(?:ist|je|beträgt|iznosi|:)?\s*(\d{2}(?:[.,]\d)?)\b",
+        value,
+        re.IGNORECASE,
+    )
+    if temperature:
+        result["temperature"] = float(temperature.group(1).replace(",", "."))
+
+    weight = re.search(
+        r"\b(?:gewicht|težina|tezina)\s*"
+        r"(?:ist|je|beträgt|iznosi|:)?\s*"
+        r"(\d{2,3}(?:[.,]\d)?)\s*(?:kg|kilogramm)?\b",
+        value,
+        re.IGNORECASE,
+    )
+    if weight:
+        result["weight"] = float(weight.group(1).replace(",", "."))
+
+    glucose = re.search(
+        r"\b(?:blutzucker|glukose|šećer|secer)\s*"
+        r"(?:ist|je|beträgt|iznosi|:)?\s*"
+        r"(\d{2,3}(?:[.,]\d)?)\s*(mg\s*/\s*d[lL]|mmol\s*/\s*[lL])?\b",
+        value,
+        re.IGNORECASE,
+    )
+    if glucose:
+        raw_unit = (glucose.group(2) or "mg/dl").replace(" ", "").lower()
+        result["glucose"] = {
+            "value": float(glucose.group(1).replace(",", ".")),
+            "unit": "mmol/l" if raw_unit.startswith("mmol") else "mg/dl",
+        }
+
+    return result
+
+
+async def _store_ai_vital(
+    patient_id: str,
+    vital_type: str,
+    *,
+    value=None,
+    systolic=None,
+    diastolic=None,
+    unit=None,
+    source_text: str = "",
+):
+    """Upisuje vrijednost istim formatom koji koristi ekran Vitalwerte."""
+    body = VitalCreate(
+        vital_type=vital_type,
+        value=value,
+        systolic=systolic,
+        diastolic=diastolic,
+        unit=unit,
+        source="voice_ai",
+        note=f"Über VYLNAX Sprachassistent dokumentiert: {source_text[:240]}",
+        measured_at=now_utc().isoformat(),
+    )
+    level, alert_message = _vital_alert(body)
+    document = {
+        "id": uid("vital"),
+        "patient_id": patient_id,
+        "vital_type": body.vital_type,
+        "value": body.value,
+        "systolic": body.systolic,
+        "diastolic": body.diastolic,
+        "unit": body.unit,
+        "source": body.source,
+        "note": body.note,
+        "measured_at": body.measured_at,
+        "alert_level": level,
+        "alert_message": alert_message,
+        "created_at": now_utc().isoformat(),
+    }
+    await db.vitals.insert_one(dict(document))
+
+    if level != "normal":
+        alert_id = uid("alert")
+        await db.health_alerts.insert_one({
+            "id": alert_id,
+            "patient_id": patient_id,
+            "type": "vital",
+            "level": level,
+            "severity": level,
+            "message": alert_message,
+            "vital_id": document["id"],
+            "acknowledged": False,
+            "created_at": now_utc().isoformat(),
+        })
+        tokens = await _push_tokens_for_patient(patient_id, "vitals")
+        await _send_expo_push(
+            tokens,
+            "VYLNAX Vitalwert-Hinweis",
+            alert_message or "Auffälliger Vitalwert",
+            {
+                "route": "/notifications",
+                "patient_id": patient_id,
+                "notification_id": alert_id,
+                "type": "vital",
+            },
+        )
+
+    await db.habit_events.insert_one({
+        "id": uid("habit"),
+        "patient_id": patient_id,
+        "event_type": f"vital_{vital_type}",
+        "value": value,
+        "metadata": {"source": "voice_ai"},
+        "created_at": now_utc().isoformat(),
+    })
+    document.pop("_id", None)
+    return document
+
+
+async def _save_voice_vitals(patient_id: str, values: dict, source_text: str):
+    saved = []
+
+    if "blood_pressure" in values:
+        bp = values["blood_pressure"]
+        saved.append(await _store_ai_vital(
+            patient_id,
+            "blood_pressure",
+            systolic=bp["systolic"],
+            diastolic=bp["diastolic"],
+            unit="mmHg",
+            source_text=source_text,
+        ))
+
+    if "pulse" in values:
+        saved.append(await _store_ai_vital(
+            patient_id,
+            "pulse",
+            value=values["pulse"],
+            unit="/min",
+            source_text=source_text,
+        ))
+
+    if "spo2" in values:
+        saved.append(await _store_ai_vital(
+            patient_id,
+            "spo2",
+            value=values["spo2"],
+            unit="%",
+            source_text=source_text,
+        ))
+
+    if "temperature" in values:
+        saved.append(await _store_ai_vital(
+            patient_id,
+            "temperature",
+            value=values["temperature"],
+            unit="°C",
+            source_text=source_text,
+        ))
+
+    if "weight" in values:
+        saved.append(await _store_ai_vital(
+            patient_id,
+            "weight",
+            value=values["weight"],
+            unit="kg",
+            source_text=source_text,
+        ))
+
+    if "glucose" in values:
+        glucose = values["glucose"]
+        saved.append(await _store_ai_vital(
+            patient_id,
+            "glucose",
+            value=glucose["value"],
+            unit=glucose["unit"],
+            source_text=source_text,
+        ))
+
+    return saved
+
+
+def _voice_vitals_confirmation(patient_name: str, values: dict):
+    parts = []
+
+    if "blood_pressure" in values:
+        bp = values["blood_pressure"]
+        parts.append(f"den Blutdruck {bp['systolic']} zu {bp['diastolic']}")
+
+    if "pulse" in values:
+        parts.append(f"den Puls {int(values['pulse'])} Schläge pro Minute")
+
+    if "spo2" in values:
+        parts.append(f"die Sauerstoffsättigung {int(values['spo2'])} Prozent")
+
+    if "temperature" in values:
+        parts.append(
+            f"die Temperatur {str(values['temperature']).replace('.', ',')} Grad Celsius"
+        )
+
+    if "weight" in values:
+        parts.append(
+            f"das Gewicht {str(values['weight']).replace('.', ',')} Kilogramm"
+        )
+
+    if "glucose" in values:
+        glucose = values["glucose"]
+        spoken_unit = (
+            "Millimol pro Liter"
+            if glucose["unit"] == "mmol/l"
+            else "Milligramm pro Deziliter"
+        )
+        parts.append(f"den Blutzucker {glucose['value']:g} {spoken_unit}")
+
+    if not parts:
+        return (
+            "Ich konnte keine eindeutige Vitalwertangabe erkennen. "
+            "Bitte nennen Sie den Wert noch einmal."
+        )
+
+    if len(parts) == 1:
+        listing = parts[0]
+    else:
+        listing = ", ".join(parts[:-1]) + " und " + parts[-1]
+
+    return (
+        f"Ich habe für {patient_name} {listing} gespeichert. "
+        "Die Messung ist jetzt unter Vitalwerte sichtbar. "
+        "Das ist eine Dokumentation und keine medizinische Diagnose."
+    )
+
+
 def _build_system_prompt(patient_name, meds, allergies=None):
     med_lines = "\n".join(
-        [f"- {m['name']} {m['dosage']} ({m['form']}), Zeiten: {', '.join(m.get('times', []))}" for m in meds]
+        [
+            f"- {m['name']} {m['dosage']} ({m['form']}), Zeiten: {', '.join(m.get('times', []))}"
+            for m in meds
+        ]
     ) or "Noch keine Medikamente hinterlegt."
     allergy_lines = ", ".join(allergies or []) or "keine hinterlegt"
+
     return (
-        "Du bist der digitale Assistent von VYLNAX PRO."
- "Antworte immer kurz, klar, freundlich und in der Sprache des Nutzers (Deutsch, Bosnisch oder Englisch)."
- "Beginne Antworten niemals mit 'Ich bin VYLNAX', 'Ich bin Ihr Assistent' oder einer Selbstvorstellung."
- "Wenn der Nutzer dich nur begrüßt, antworte ausschließlich mit: 'Wie kann ich Ihnen helfen?'"
- "Stelle dich nur vor, wenn der Nutzer ausdrücklich fragt, wer du bist oder wer dich entwickelt hat."
-         "Wenn der Nutzer fragt, wer dein Entwickler, Erfinder, Schöpfer, Gründer oder Ersteller ist oder wer VYLNAX entwickelt, erfunden, kreiert oder gemacht hat, antworte immer genau: "
+        "Du bist der digitale VYLNAX Care Assistant. "
+        "Sprich warm, ruhig, freundlich und menschlich, niemals kalt oder roboterhaft. "
+        "Antworte in der Sprache des Nutzers: Deutsch, Bosnisch, Kroatisch, Serbisch oder Englisch. "
+        "Nutze kurze, natürliche Sätze, die sich gut vorlesen lassen. "
+        "Verwende keine Tabellen, Sternchen oder unnötigen Abkürzungen. "
+        "Schreibe VYLNAX im gesprochenen Fließtext als Vilnaks, damit der Name nicht buchstabiert wird. "
+        "Schreibe medizinische Einheiten möglichst ausgeschrieben, zum Beispiel Milligramm pro Deziliter. "
+        "Beginne nicht mit einer Selbstvorstellung, außer der Nutzer fragt ausdrücklich danach. "
+        "Bei einer Begrüßung antworte kurz und herzlich. "
+        "Wenn nach Entwickler, Erfinder, Gründer, Schöpfer oder Ersteller gefragt wird, antworte genau: "
         "'VYLNAX PRO wurde von Herr Adilovic Jasmin und Mirnesa entwickelt und erfunden.' "
-        "Nenne niemals eine andere Person, ein Team oder eine Firma als Entwickler oder Erfinder von VYLNAX PRO. "
+        f"Aktuelles Datum und Uhrzeit: {_current_local_datetime_text()}. "
         f"Aktueller Patient: {patient_name}. Bekannte Allergien: {allergy_lines}.\n"
-        f"Aktuelle Medikamente:\n{med_lines}\n\n"
-        "Du darfst allgemeine Informationen zu Medikamenten, Einnahme, Nebenwirkungen und möglichen "
-        "Wechselwirkungen erklären. Du darfst keine Diagnose stellen, keine verordnete Dosis ändern und "
-        "keine individuelle Therapie anordnen. Bei medizinischen Entscheidungen immer Arzt oder Apotheke "
-        "empfehlen. Bei Atemnot, Bewusstlosigkeit, Brustschmerz, schwerer allergischer Reaktion oder anderen "
-        "Notfällen ausdrücklich 112 empfehlen. Weise bei Unsicherheit klar darauf hin, dass die Information "
-        "ärztlich oder pharmazeutisch bestätigt werden muss."
+        f"Aktuelle dokumentierte Medikamente:\n{med_lines}\n\n"
+        "Verbindliche medizinische Sicherheitsregeln: "
+        "Stelle niemals eine Diagnose und behaupte niemals, eine Krankheit sicher erkannt zu haben. "
+        "Empfehle niemals ein Medikament zur Einnahme, auch kein rezeptfreies Medikament. "
+        "Empfehle niemals, eine Dosis zu erhöhen, zu senken, auszulassen oder eine Therapie zu beginnen, "
+        "abzusetzen oder zu pausieren. "
+        "Du darfst allgemein erklären, wofür ein Medikament verwendet wird, wie es grundsätzlich wirkt "
+        "und welche bekannten Nebenwirkungen oder allgemeinen Wechselwirkungen möglich sind. "
+        "Ob ein Medikament für den konkreten Patienten geeignet ist, darfst du nicht entscheiden. "
+        "Verweise bei individuellen Therapiefragen auf Arzt oder Apotheke. "
+        "Du darfst dokumentierte Vitalwerte und zeitliche Trends sachlich zusammenfassen. "
+        "Formuliere dabei ausdrücklich, dass dies keine Diagnose und keine medizinische Entscheidung ersetzt. "
+        "Bei Atemnot, Bewusstlosigkeit, Brustschmerz, Schlaganfallzeichen, einer schweren allergischen Reaktion "
+        "oder einer anderen akuten Gefahr weise auf den Notruf 112 hin. "
+        "Behaupte niemals, Daten gespeichert zu haben. Eine Speicherbestätigung darf ausschließlich "
+        "die Anwendung nach einem tatsächlich erfolgreichen Datenbankeintrag geben."
     )
 
 
@@ -2206,51 +2676,179 @@ async def _assistant_patient_context(patient_id: str):
 @api_router.post("/assistant/chat")
 async def assistant_chat(body: ChatRequest, user=Depends(get_current_user)):
     message = body.message.strip()
+    language = _normalize_ai_language(body.language)
     if not message:
         raise HTTPException(status_code=400, detail="EMPTY_MESSAGE")
 
     meds = []
     allergies = []
-    patient_name = user.get("name") or "der Patient"
+    patient_name = user.get("name") or "den Patienten"
     patient_context = None
+    patient = None
+
     if body.patient_id:
         patient = await db.patients.find_one(
-            {"id": body.patient_id, "owner_id": user["user_id"]}, {"_id": 0}
+            {"id": body.patient_id, "owner_id": user["user_id"]},
+            {"_id": 0},
         )
         if not patient:
             raise HTTPException(status_code=404, detail="Patient not found")
+
         patient_name = patient.get("name") or patient_name
         allergies = patient.get("allergies", [])
         meds = await db.medications.find(
-            {"patient_id": body.patient_id}, {"_id": 0}
+            {"patient_id": body.patient_id},
+            {"_id": 0},
         ).to_list(100)
         patient_context = await _assistant_patient_context(body.patient_id)
 
+    if _is_current_date_question(message):
+        current_datetime = _current_local_datetime_text()
+
+        if language == "bs":
+            reply = f"Danas je {current_datetime}."
+        elif language == "en":
+            reply = f"Today is {current_datetime}."
+        else:
+            reply = f"Heute ist {current_datetime}."
+
+        common = {
+            "user_id": user["user_id"],
+            "patient_id": body.patient_id,
+        }
+        await db.chat_messages.insert_many([
+            {
+                "id": uid("msg"),
+                **common,
+                "role": "user",
+                "content": message,
+                "created_at": now_utc().isoformat(),
+            },
+            {
+                "id": uid("msg"),
+                **common,
+                "role": "assistant",
+                "content": reply,
+                "created_at": now_utc().isoformat(),
+            },
+        ])
+        return {
+            "reply": reply,
+            "provider": "local_action",
+            "action": "current_datetime",
+            "suggest_journal": False,
+            "source_text": None,
+        }
+
+    extracted_vitals = _extract_voice_vitals(message)
+    wants_to_save = bool(SAVE_VITALS_INTENT.search(message))
+
+    if wants_to_save and extracted_vitals:
+        if not body.patient_id or not patient:
+            reply = (
+                "Bitte wählen Sie zuerst einen Patienten aus. "
+                "Ohne aktiven Patienten kann ich die Messwerte nicht sicher speichern."
+            )
+            return {
+                "reply": reply,
+                "provider": "local_action",
+                "action": "vitals_not_saved",
+                "saved_vitals": [],
+                "suggest_journal": False,
+                "source_text": None,
+            }
+
+        saved_vitals = await _save_voice_vitals(
+            body.patient_id,
+            extracted_vitals,
+            message,
+        )
+        reply = _voice_vitals_confirmation(patient_name, extracted_vitals)
+
+        common = {
+            "user_id": user["user_id"],
+            "patient_id": body.patient_id,
+        }
+        await db.chat_messages.insert_many([
+            {
+                "id": uid("msg"),
+                **common,
+                "role": "user",
+                "content": message,
+                "created_at": now_utc().isoformat(),
+            },
+            {
+                "id": uid("msg"),
+                **common,
+                "role": "assistant",
+                "content": reply,
+                "created_at": now_utc().isoformat(),
+                "action": "vitals_saved",
+            },
+        ])
+
+        return {
+            "reply": reply,
+            "provider": "local_action",
+            "action": "vitals_saved",
+            "saved_vitals": saved_vitals,
+            "suggest_journal": False,
+            "source_text": None,
+        }
+
     system_text = _build_system_prompt(patient_name, meds, allergies)
+    system_text = (
+        _language_instruction(language)
+        + "\n\n"
+        + system_text
+    )
+
     if patient_context:
         system_text += "\n\n" + patient_context["prompt"]
-    reply = await _gemini_generate(message, system_text)
-    suggest_journal = bool(body.patient_id and _looks_like_symptom(message))
 
-    common = {"user_id": user["user_id"], "patient_id": body.patient_id}
+    reply = await _gemini_generate(message, system_text)
+    suggest_journal = bool(
+        body.patient_id and _looks_like_symptom(message)
+    )
+
+    common = {
+        "user_id": user["user_id"],
+        "patient_id": body.patient_id,
+    }
     await db.chat_messages.insert_many([
         {
-            "id": uid("msg"), **common, "role": "user", "content": message,
+            "id": uid("msg"),
+            **common,
+            "role": "user",
+            "content": message,
             "created_at": now_utc().isoformat(),
         },
         {
-            "id": uid("msg"), **common, "role": "assistant", "content": reply,
-            "created_at": now_utc().isoformat(), "suggest_journal": suggest_journal,
+            "id": uid("msg"),
+            **common,
+            "role": "assistant",
+            "content": reply,
+            "created_at": now_utc().isoformat(),
+            "suggest_journal": suggest_journal,
             "source_text": message if suggest_journal else None,
         },
     ])
+
     if body.patient_id:
         await db.habit_events.insert_one({
-            "id": uid("habit"), "patient_id": body.patient_id,
-            "event_type": "ai_conversation", "metadata": {"symptom_candidate": suggest_journal},
+            "id": uid("habit"),
+            "patient_id": body.patient_id,
+            "event_type": "ai_conversation",
+            "metadata": {"symptom_candidate": suggest_journal},
             "created_at": now_utc().isoformat(),
         })
-    return {"reply": reply, "provider": "gemini", "suggest_journal": suggest_journal, "source_text": message if suggest_journal else None}
+
+    return {
+        "reply": reply,
+        "provider": "gemini",
+        "suggest_journal": suggest_journal,
+        "source_text": message if suggest_journal else None,
+    }
 
 
 @api_router.get("/assistant/history")
@@ -3304,7 +3902,339 @@ async def care_dashboard(days: int = 7, user=Depends(get_current_user), access=D
         "patients":rows,
         "disclaimer":"Priorisierungshilfe für Fachpersonal, keine Diagnose oder automatische medizinische Entscheidung."
     }
+# ============================================================
+# VYLNAX – KI-WUNDFOTOANALYSE
+#
+# In backend/server.py:
+# 1) oben bei den Imports einmal ergänzen:
+#       import json
+#
+# 2) diesen Block VOR app.include_router(api_router) einfügen.
+#
+# Voraussetzung:
+# - bestehender GEMINI_API_KEY
+# - bestehende Funktion _owns_patient(...)
+# - bestehende Imports: httpx, asyncio, re, HTTPException, Depends, BaseModel, Optional
+# ============================================================
 
+
+class WoundPhotoAnalysisRequest(BaseModel):
+    photo_data_url: str
+    wound_type: Optional[str] = None
+    location: Optional[str] = None
+
+
+def _extract_wound_image_data(photo_data_url: str):
+    value = str(photo_data_url or "").strip()
+
+    match = re.match(
+        r"^data:(image/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=\r\n]+)$",
+        value,
+        re.IGNORECASE,
+    )
+
+    if not match:
+        raise HTTPException(
+            status_code=400,
+            detail="INVALID_WOUND_IMAGE",
+        )
+
+    mime_type = match.group(1).lower()
+    if mime_type == "image/jpg":
+        mime_type = "image/jpeg"
+
+    image_base64 = re.sub(r"\s+", "", match.group(2))
+
+    # Base64 je ~4/3 veći od originalnih bajtova.
+    # Ovo ograničenje drži prototype request razumno malim.
+    if len(image_base64) > 8_000_000:
+        raise HTTPException(
+            status_code=413,
+            detail="WOUND_IMAGE_TOO_LARGE",
+        )
+
+    return mime_type, image_base64
+
+
+def _clean_json_text(value: str) -> str:
+    text = str(value or "").strip()
+
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text)
+
+    return text.strip()
+
+
+async def _gemini_analyze_wound_photo(
+    *,
+    image_mime_type: str,
+    image_base64: str,
+    wound_type: Optional[str] = None,
+    location: Optional[str] = None,
+):
+    if not GEMINI_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="AI_NOT_CONFIGURED",
+        )
+
+    context_lines = []
+
+    if wound_type:
+        context_lines.append(f"Dokumentierte Wundart: {wound_type}")
+
+    if location:
+        context_lines.append(f"Dokumentierte Lokalisation: {location}")
+
+    context_text = "\n".join(context_lines) or "Keine zusätzlichen Angaben."
+
+    prompt = f"""
+Du unterstützt professionelle Pflegefachkräfte bei der Wunddokumentation.
+
+Analysiere ausschließlich SICHTBARE Merkmale auf dem beigefügten Wundfoto.
+Es handelt sich NICHT um eine automatische Diagnose.
+
+Zusatzangaben:
+{context_text}
+
+Verbindliche Regeln:
+- Stelle KEINE Diagnose.
+- Behaupte NICHT, dass eine Infektion, ein Dekubitusgrad oder eine bestimmte Erkrankung sicher erkannt wurde.
+- Erfinde keine Informationen.
+- Schmerz, Geruch, Temperatur, Palpationsbefund und sichere Wundtiefe sind aus einem Foto nicht zuverlässig bestimmbar.
+- Wenn Exsudat nicht klar sichtbar ist, sage ausdrücklich, dass es fotografisch nicht sicher beurteilbar ist.
+- Beschreibe Wundgrund, Wundrand und Wundumgebung ausschließlich soweit sichtbar.
+- Formuliere sachlich, kurz und professionell auf Deutsch.
+- Die Ausgabe ist nur ein KI-Vorschlag und muss von PFK, Wundexperte/Wundmanager oder Arzt geprüft werden.
+
+Antworte AUSSCHLIESSLICH als gültiges JSON mit genau diesen Schlüsseln:
+{{
+  "description": "kurze zusammenfassende sichtbare Wundbeschreibung",
+  "wound_base": "sichtbarer Wundgrund oder fotografisch nicht sicher beurteilbar",
+  "wound_edge": "sichtbarer Wundrand oder fotografisch nicht sicher beurteilbar",
+  "wound_surrounding_skin": "sichtbare Wundumgebung oder fotografisch nicht sicher beurteilbar",
+  "exudate_visible": "sichtbares Exsudat oder fotografisch nicht sicher beurteilbar",
+  "visible_findings": "weitere ausschließlich sichtbare Merkmale",
+  "limitations": "kurzer Hinweis, welche wichtigen Wundmerkmale aus dem Foto nicht sicher beurteilbar sind"
+}}
+""".strip()
+
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {"text": prompt},
+                    {
+                        "inline_data": {
+                            "mime_type": image_mime_type,
+                            "data": image_base64,
+                        }
+                    },
+                ],
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.15,
+            "maxOutputTokens": 900,
+            "responseMimeType": "application/json",
+        },
+    }
+
+    # Isti fallback princip kao u postojećem VYLNAX KI asistentu.
+    models = [
+        "gemini-3.1-flash-lite",
+        "gemini-flash-latest",
+        "gemini-3.5-flash",
+        "gemini-2.0-flash-001",
+    ]
+
+    last_status = None
+    last_error = ""
+
+    async with httpx.AsyncClient(timeout=60.0) as http:
+        for model in models:
+            url = (
+                "https://generativelanguage.googleapis.com/v1beta/"
+                f"models/{model}:generateContent"
+            )
+
+            for attempt in range(3):
+                try:
+                    response = await http.post(
+                        url,
+                        headers={
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": GEMINI_API_KEY,
+                        },
+                        json=payload,
+                    )
+                except httpx.TimeoutException as exc:
+                    last_status = 504
+                    last_error = str(exc)
+                    logger.warning(
+                        "Wound AI timeout model=%s attempt=%s: %s",
+                        model,
+                        attempt + 1,
+                        exc,
+                    )
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                except httpx.HTTPError as exc:
+                    last_status = 502
+                    last_error = str(exc)
+                    logger.warning(
+                        "Wound AI connection error model=%s: %s",
+                        model,
+                        exc,
+                    )
+                    break
+
+                last_status = response.status_code
+                last_error = response.text
+
+                if response.status_code == 200:
+                    data = response.json()
+                    candidates = data.get("candidates") or []
+
+                    parts = (
+                        candidates[0].get("content", {}).get("parts", [])
+                        if candidates
+                        else []
+                    )
+
+                    answer = "".join(
+                        part.get("text", "")
+                        for part in parts
+                        if isinstance(part, dict)
+                    ).strip()
+
+                    if not answer:
+                        logger.warning(
+                            "Wound AI empty response model=%s",
+                            model,
+                        )
+                        break
+
+                    try:
+                        parsed = json.loads(_clean_json_text(answer))
+                    except Exception as exc:
+                        logger.warning(
+                            "Wound AI invalid JSON model=%s: %s / %s",
+                            model,
+                            exc,
+                            answer[:600],
+                        )
+                        break
+
+                    allowed = {
+                        "description",
+                        "wound_base",
+                        "wound_edge",
+                        "wound_surrounding_skin",
+                        "exudate_visible",
+                        "visible_findings",
+                        "limitations",
+                    }
+
+                    result = {
+                        key: (
+                            str(parsed.get(key)).strip()
+                            if parsed.get(key) is not None
+                            else None
+                        )
+                        for key in allowed
+                    }
+
+                    logger.info(
+                        "Wound AI analysis succeeded model=%s",
+                        model,
+                    )
+
+                    return result
+
+                logger.error(
+                    "Wound AI model=%s error=%s: %s",
+                    model,
+                    response.status_code,
+                    response.text,
+                )
+
+                if response.status_code == 404:
+                    break
+
+                if response.status_code in (429, 500, 502, 503, 504):
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+
+                break
+
+    raise HTTPException(
+        status_code=last_status or 502,
+        detail=f"WOUND_AI_FAILED: {last_error[:500]}",
+    )
+
+
+@api_router.post("/patients/{patient_id}/wounds/analyze-photo")
+async def analyze_wound_photo(
+    patient_id: str,
+    body: WoundPhotoAnalysisRequest,
+    user=Depends(get_current_user),
+):
+    await _owns_patient(user, patient_id)
+
+    image_mime_type, image_base64 = _extract_wound_image_data(
+        body.photo_data_url
+    )
+
+    result = await _gemini_analyze_wound_photo(
+        image_mime_type=image_mime_type,
+        image_base64=image_base64,
+        wound_type=body.wound_type,
+        location=body.location,
+    )
+
+    return result
+
+@api_router.get("/wounds/{wound_id}")
+async def get_wound(
+    wound_id: str,
+    user=Depends(get_current_user),
+):
+    doc = await db.wounds.find_one(
+        {"id": wound_id, "owner_id": user["user_id"]},
+        {"_id": 0},
+    )
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="Wunddokumentation nicht gefunden")
+
+    await _owns_patient(user, doc["patient_id"])
+    return doc
+
+
+@api_router.delete("/wounds/{wound_id}")
+async def delete_wound(
+    wound_id: str,
+    user=Depends(get_current_user),
+):
+    doc = await db.wounds.find_one(
+        {"id": wound_id, "owner_id": user["user_id"]},
+        {"_id": 0},
+    )
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="Wunddokumentation nicht gefunden")
+
+    await _owns_patient(user, doc["patient_id"])
+
+    await db.wounds.delete_one({
+        "id": wound_id,
+        "owner_id": user["user_id"],
+    })
+
+    return {"ok": True}
 app.include_router(api_router)
 
 app.add_middleware(
@@ -3341,4 +4271,3 @@ async def shutdown_db_client():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("server:app", host="0.0.0.0", port=8001, reload=False)
-
