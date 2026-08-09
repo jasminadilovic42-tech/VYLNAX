@@ -15,6 +15,7 @@ import hmac
 import httpx
 import asyncio
 import sqlite3
+import json
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -3901,7 +3902,339 @@ async def care_dashboard(days: int = 7, user=Depends(get_current_user), access=D
         "patients":rows,
         "disclaimer":"Priorisierungshilfe für Fachpersonal, keine Diagnose oder automatische medizinische Entscheidung."
     }
+# ============================================================
+# VYLNAX – KI-WUNDFOTOANALYSE
+#
+# In backend/server.py:
+# 1) oben bei den Imports einmal ergänzen:
+#       import json
+#
+# 2) diesen Block VOR app.include_router(api_router) einfügen.
+#
+# Voraussetzung:
+# - bestehender GEMINI_API_KEY
+# - bestehende Funktion _owns_patient(...)
+# - bestehende Imports: httpx, asyncio, re, HTTPException, Depends, BaseModel, Optional
+# ============================================================
 
+
+class WoundPhotoAnalysisRequest(BaseModel):
+    photo_data_url: str
+    wound_type: Optional[str] = None
+    location: Optional[str] = None
+
+
+def _extract_wound_image_data(photo_data_url: str):
+    value = str(photo_data_url or "").strip()
+
+    match = re.match(
+        r"^data:(image/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=\r\n]+)$",
+        value,
+        re.IGNORECASE,
+    )
+
+    if not match:
+        raise HTTPException(
+            status_code=400,
+            detail="INVALID_WOUND_IMAGE",
+        )
+
+    mime_type = match.group(1).lower()
+    if mime_type == "image/jpg":
+        mime_type = "image/jpeg"
+
+    image_base64 = re.sub(r"\s+", "", match.group(2))
+
+    # Base64 je ~4/3 veći od originalnih bajtova.
+    # Ovo ograničenje drži prototype request razumno malim.
+    if len(image_base64) > 8_000_000:
+        raise HTTPException(
+            status_code=413,
+            detail="WOUND_IMAGE_TOO_LARGE",
+        )
+
+    return mime_type, image_base64
+
+
+def _clean_json_text(value: str) -> str:
+    text = str(value or "").strip()
+
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text)
+
+    return text.strip()
+
+
+async def _gemini_analyze_wound_photo(
+    *,
+    image_mime_type: str,
+    image_base64: str,
+    wound_type: Optional[str] = None,
+    location: Optional[str] = None,
+):
+    if not GEMINI_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="AI_NOT_CONFIGURED",
+        )
+
+    context_lines = []
+
+    if wound_type:
+        context_lines.append(f"Dokumentierte Wundart: {wound_type}")
+
+    if location:
+        context_lines.append(f"Dokumentierte Lokalisation: {location}")
+
+    context_text = "\n".join(context_lines) or "Keine zusätzlichen Angaben."
+
+    prompt = f"""
+Du unterstützt professionelle Pflegefachkräfte bei der Wunddokumentation.
+
+Analysiere ausschließlich SICHTBARE Merkmale auf dem beigefügten Wundfoto.
+Es handelt sich NICHT um eine automatische Diagnose.
+
+Zusatzangaben:
+{context_text}
+
+Verbindliche Regeln:
+- Stelle KEINE Diagnose.
+- Behaupte NICHT, dass eine Infektion, ein Dekubitusgrad oder eine bestimmte Erkrankung sicher erkannt wurde.
+- Erfinde keine Informationen.
+- Schmerz, Geruch, Temperatur, Palpationsbefund und sichere Wundtiefe sind aus einem Foto nicht zuverlässig bestimmbar.
+- Wenn Exsudat nicht klar sichtbar ist, sage ausdrücklich, dass es fotografisch nicht sicher beurteilbar ist.
+- Beschreibe Wundgrund, Wundrand und Wundumgebung ausschließlich soweit sichtbar.
+- Formuliere sachlich, kurz und professionell auf Deutsch.
+- Die Ausgabe ist nur ein KI-Vorschlag und muss von PFK, Wundexperte/Wundmanager oder Arzt geprüft werden.
+
+Antworte AUSSCHLIESSLICH als gültiges JSON mit genau diesen Schlüsseln:
+{{
+  "description": "kurze zusammenfassende sichtbare Wundbeschreibung",
+  "wound_base": "sichtbarer Wundgrund oder fotografisch nicht sicher beurteilbar",
+  "wound_edge": "sichtbarer Wundrand oder fotografisch nicht sicher beurteilbar",
+  "wound_surrounding_skin": "sichtbare Wundumgebung oder fotografisch nicht sicher beurteilbar",
+  "exudate_visible": "sichtbares Exsudat oder fotografisch nicht sicher beurteilbar",
+  "visible_findings": "weitere ausschließlich sichtbare Merkmale",
+  "limitations": "kurzer Hinweis, welche wichtigen Wundmerkmale aus dem Foto nicht sicher beurteilbar sind"
+}}
+""".strip()
+
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {"text": prompt},
+                    {
+                        "inline_data": {
+                            "mime_type": image_mime_type,
+                            "data": image_base64,
+                        }
+                    },
+                ],
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.15,
+            "maxOutputTokens": 900,
+            "responseMimeType": "application/json",
+        },
+    }
+
+    # Isti fallback princip kao u postojećem VYLNAX KI asistentu.
+    models = [
+        "gemini-3.1-flash-lite",
+        "gemini-flash-latest",
+        "gemini-3.5-flash",
+        "gemini-2.0-flash-001",
+    ]
+
+    last_status = None
+    last_error = ""
+
+    async with httpx.AsyncClient(timeout=60.0) as http:
+        for model in models:
+            url = (
+                "https://generativelanguage.googleapis.com/v1beta/"
+                f"models/{model}:generateContent"
+            )
+
+            for attempt in range(3):
+                try:
+                    response = await http.post(
+                        url,
+                        headers={
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": GEMINI_API_KEY,
+                        },
+                        json=payload,
+                    )
+                except httpx.TimeoutException as exc:
+                    last_status = 504
+                    last_error = str(exc)
+                    logger.warning(
+                        "Wound AI timeout model=%s attempt=%s: %s",
+                        model,
+                        attempt + 1,
+                        exc,
+                    )
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                except httpx.HTTPError as exc:
+                    last_status = 502
+                    last_error = str(exc)
+                    logger.warning(
+                        "Wound AI connection error model=%s: %s",
+                        model,
+                        exc,
+                    )
+                    break
+
+                last_status = response.status_code
+                last_error = response.text
+
+                if response.status_code == 200:
+                    data = response.json()
+                    candidates = data.get("candidates") or []
+
+                    parts = (
+                        candidates[0].get("content", {}).get("parts", [])
+                        if candidates
+                        else []
+                    )
+
+                    answer = "".join(
+                        part.get("text", "")
+                        for part in parts
+                        if isinstance(part, dict)
+                    ).strip()
+
+                    if not answer:
+                        logger.warning(
+                            "Wound AI empty response model=%s",
+                            model,
+                        )
+                        break
+
+                    try:
+                        parsed = json.loads(_clean_json_text(answer))
+                    except Exception as exc:
+                        logger.warning(
+                            "Wound AI invalid JSON model=%s: %s / %s",
+                            model,
+                            exc,
+                            answer[:600],
+                        )
+                        break
+
+                    allowed = {
+                        "description",
+                        "wound_base",
+                        "wound_edge",
+                        "wound_surrounding_skin",
+                        "exudate_visible",
+                        "visible_findings",
+                        "limitations",
+                    }
+
+                    result = {
+                        key: (
+                            str(parsed.get(key)).strip()
+                            if parsed.get(key) is not None
+                            else None
+                        )
+                        for key in allowed
+                    }
+
+                    logger.info(
+                        "Wound AI analysis succeeded model=%s",
+                        model,
+                    )
+
+                    return result
+
+                logger.error(
+                    "Wound AI model=%s error=%s: %s",
+                    model,
+                    response.status_code,
+                    response.text,
+                )
+
+                if response.status_code == 404:
+                    break
+
+                if response.status_code in (429, 500, 502, 503, 504):
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+
+                break
+
+    raise HTTPException(
+        status_code=last_status or 502,
+        detail=f"WOUND_AI_FAILED: {last_error[:500]}",
+    )
+
+
+@api_router.post("/patients/{patient_id}/wounds/analyze-photo")
+async def analyze_wound_photo(
+    patient_id: str,
+    body: WoundPhotoAnalysisRequest,
+    user=Depends(get_current_user),
+):
+    await _owns_patient(user, patient_id)
+
+    image_mime_type, image_base64 = _extract_wound_image_data(
+        body.photo_data_url
+    )
+
+    result = await _gemini_analyze_wound_photo(
+        image_mime_type=image_mime_type,
+        image_base64=image_base64,
+        wound_type=body.wound_type,
+        location=body.location,
+    )
+
+    return result
+
+@api_router.get("/wounds/{wound_id}")
+async def get_wound(
+    wound_id: str,
+    user=Depends(get_current_user),
+):
+    doc = await db.wounds.find_one(
+        {"id": wound_id, "owner_id": user["user_id"]},
+        {"_id": 0},
+    )
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="Wunddokumentation nicht gefunden")
+
+    await _owns_patient(user, doc["patient_id"])
+    return doc
+
+
+@api_router.delete("/wounds/{wound_id}")
+async def delete_wound(
+    wound_id: str,
+    user=Depends(get_current_user),
+):
+    doc = await db.wounds.find_one(
+        {"id": wound_id, "owner_id": user["user_id"]},
+        {"_id": 0},
+    )
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="Wunddokumentation nicht gefunden")
+
+    await _owns_patient(user, doc["patient_id"])
+
+    await db.wounds.delete_one({
+        "id": wound_id,
+        "owner_id": user["user_id"],
+    })
+
+    return {"ok": True}
 app.include_router(api_router)
 
 app.add_middleware(
