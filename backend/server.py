@@ -2673,18 +2673,11 @@ async def _assistant_patient_context(patient_id: str):
 
 
 @api_router.post("/assistant/chat")
-async def assistant_chat(
-    body: ChatRequest,
-    user=Depends(get_current_user),
-):
+async def assistant_chat(body: ChatRequest, user=Depends(get_current_user)):
     message = body.message.strip()
     language = _normalize_ai_language(body.language)
-
     if not message:
-        raise HTTPException(
-            status_code=400,
-            detail="EMPTY_MESSAGE",
-        )
+        raise HTTPException(status_code=400, detail="EMPTY_MESSAGE")
 
     meds = []
     allergies = []
@@ -2708,27 +2701,20 @@ async def assistant_chat(
         ).to_list(100)
         patient_context = await _assistant_patient_context(body.patient_id)
 
-@api_router.post("/assistant/chat")
-async def assistant_chat(
-    body: ChatRequest,
-    user=Depends(get_current_user),
-):
-    message = body.message.strip()
-    language = _normalize_ai_language(body.language)
+    if _is_current_date_question(message):
+        current_datetime = _current_local_datetime_text()
 
-    if not message:
-        raise HTTPException(
-            status_code=400,
-            detail="EMPTY_MESSAGE",
-        )
+        if language == "bs":
+            reply = f"Danas je {current_datetime}."
+        elif language == "en":
+            reply = f"Today is {current_datetime}."
+        else:
+            reply = f"Heute ist {current_datetime}."
 
-    meds = []
-    allergies = []
-    patient_name = user.get("name") or "den Patienten"
-    patient_context = None
-    patient = None
-
-    if body.patient_id:
+        common = {
+            "user_id": user["user_id"],
+            "patient_id": body.patient_id,
+        }
         await db.chat_messages.insert_many([
             {
                 "id": uid("msg"),
@@ -2808,8 +2794,8 @@ async def assistant_chat(
             "suggest_journal": False,
             "source_text": None,
         }
-    system_text = _build_system_prompt(patient_name, meds, allergies)
 
+    system_text = _build_system_prompt(patient_name, meds, allergies)
     system_text = (
         _language_instruction(language)
         + "\n\n"
@@ -2820,7 +2806,6 @@ async def assistant_chat(
         system_text += "\n\n" + patient_context["prompt"]
 
     reply = await _gemini_generate(message, system_text)
-
     suggest_journal = bool(
         body.patient_id and _looks_like_symptom(message)
     )
@@ -2829,40 +2814,33 @@ async def assistant_chat(
         "user_id": user["user_id"],
         "patient_id": body.patient_id,
     }
-
-    await db.chat_messages.insert_many(
-        [
-            {
-                "id": uid("msg"),
-                **common,
-                "role": "user",
-                "content": message,
-                "created_at": now_utc().isoformat(),
-            },
-            {
-                "id": uid("msg"),
-                **common,
-                "role": "assistant",
-                "content": reply,
-                "created_at": now_utc().isoformat(),
-                "suggest_journal": suggest_journal,
-                "source_text": message if suggest_journal else None,
-            },
-        ]
-    )
+    await db.chat_messages.insert_many([
+        {
+            "id": uid("msg"),
+            **common,
+            "role": "user",
+            "content": message,
+            "created_at": now_utc().isoformat(),
+        },
+        {
+            "id": uid("msg"),
+            **common,
+            "role": "assistant",
+            "content": reply,
+            "created_at": now_utc().isoformat(),
+            "suggest_journal": suggest_journal,
+            "source_text": message if suggest_journal else None,
+        },
+    ])
 
     if body.patient_id:
-        await db.habit_events.insert_one(
-            {
-                "id": uid("habit"),
-                "patient_id": body.patient_id,
-                "event_type": "ai_conversation",
-                "metadata": {
-                    "symptom_candidate": suggest_journal,
-                },
-                "created_at": now_utc().isoformat(),
-            }
-        )
+        await db.habit_events.insert_one({
+            "id": uid("habit"),
+            "patient_id": body.patient_id,
+            "event_type": "ai_conversation",
+            "metadata": {"symptom_candidate": suggest_journal},
+            "created_at": now_utc().isoformat(),
+        })
 
     return {
         "reply": reply,
