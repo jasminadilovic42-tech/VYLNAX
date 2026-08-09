@@ -2675,8 +2675,7 @@ async def _assistant_patient_context(patient_id: str):
 @api_router.post("/assistant/chat")
 async def assistant_chat(body: ChatRequest, user=Depends(get_current_user)):
     message = body.message.strip()
-message = body.message.strip()
-language = _normalize_ai_language(body.language)
+    language = _normalize_ai_language(body.language)
     if not message:
         raise HTTPException(status_code=400, detail="EMPTY_MESSAGE")
 
@@ -2703,14 +2702,15 @@ language = _normalize_ai_language(body.language)
         patient_context = await _assistant_patient_context(body.patient_id)
 
     if _is_current_date_question(message):
-    current_datetime = _current_local_datetime_text()
+        current_datetime = _current_local_datetime_text()
 
-    if language == "bs":
-        reply = f"Danas je {current_datetime}."
-    elif language == "en":
-        reply = f"Today is {current_datetime}."
-    else:
-        reply = f"Heute ist {current_datetime}."
+        if language == "bs":
+            reply = f"Danas je {current_datetime}."
+        elif language == "en":
+            reply = f"Today is {current_datetime}."
+        else:
+            reply = f"Heute ist {current_datetime}."
+
         common = {
             "user_id": user["user_id"],
             "patient_id": body.patient_id,
@@ -2794,18 +2794,18 @@ language = _normalize_ai_language(body.language)
             "suggest_journal": False,
             "source_text": None,
         }
-system_text = _build_system_prompt(patient_name, meds, allergies)
 
-system_text = (
-    _language_instruction(language)
-    + "\n\n"
-    + system_text
-)
+    system_text = _build_system_prompt(patient_name, meds, allergies)
+    system_text = (
+        _language_instruction(language)
+        + "\n\n"
+        + system_text
+    )
 
-if patient_context:
-    system_text += "\n\n" + patient_context["prompt"]
+    if patient_context:
+        system_text += "\n\n" + patient_context["prompt"]
 
-reply = await _gemini_generate(message, system_text)
+    reply = await _gemini_generate(message, system_text)
     suggest_journal = bool(
         body.patient_id and _looks_like_symptom(message)
     )
