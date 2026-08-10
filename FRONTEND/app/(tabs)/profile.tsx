@@ -203,9 +203,9 @@ function profileRoleIcon(
 }
 
 export default function Profile() {
-  const { user, logout } = useAuth();
+  const { user, accessUser, logout } = useAuth();
 
-  const role = normalizeRole(user?.role);
+  const role = normalizeRole(accessUser?.role || user?.role);
   const canManageProfiles = role === "caregiver";
   const canAccessWounds = role === "caregiver" || role === "doctor";
 
@@ -766,7 +766,7 @@ export default function Profile() {
         <Card style={styles.currentRoleCard}>
           <View style={styles.currentRoleIcon}>
             <Ionicons
-              name={profileRoleIcon(user?.role)}
+              name={profileRoleIcon(accessUser?.role || user?.role)}
               size={25}
               color={colors.brandPrimary}
             />
@@ -774,7 +774,7 @@ export default function Profile() {
 
           <View style={styles.flexOne}>
             <Text style={styles.currentRoleLabel}>
-              {profileRoleLabel(user?.role)}
+              {profileRoleLabel(accessUser?.role || user?.role)}
             </Text>
 
             <Text style={styles.currentRoleInfo}>

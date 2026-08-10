@@ -48,9 +48,9 @@ function normalizeRole(role?: string | null): string {
 export default function AddDoctor() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { accessUser } = useAuth();
 
-  const role = normalizeRole(user?.role);
+  const role = normalizeRole(accessUser?.role);
   const canManageDoctors = role === "caregiver";
 
   const [title, setTitle] = useState("");
@@ -189,7 +189,7 @@ export default function AddDoctor() {
     }
   };
 
-  if (user && !canManageDoctors) {
+  if (accessUser && !canManageDoctors) {
     return (
       <View
         style={[

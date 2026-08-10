@@ -13,20 +13,23 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing, radius } from "@/src/theme";
 import { useAuth } from "@/src/context/AuthContext";
 
-function normalizeRole(role?: string | null): string {
-  return String(role || "").trim().toLowerCase();
-}
-
 export default function AddPerson() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
 
-  const role = normalizeRole(user?.role);
+  const {
+    accessUser,
+    isCaregiver,
+  } = useAuth();
 
-  // PFK/Admin mogu dodavati i povezivati osobe.
-  // Ako želiš kasnije možemo ovo dodatno razdvojiti po pravima.
-  const canAddPerson = role === "caregiver" || role === "admin" || !user;
+  /*
+   * Pflegefachkraft / PFK može dodavati i povezivati osobe.
+   *
+   * VAŽNO:
+   * Aktivna PIN uloga dolazi iz accessUser.role,
+   * a ne iz user.role.
+   */
+  const canAddPerson = isCaregiver;
 
   const options = [
     {
@@ -59,7 +62,7 @@ export default function AddPerson() {
     },
   ];
 
-  if (!canAddPerson) {
+  if (accessUser && !canAddPerson) {
     return (
       <View
         style={[
@@ -71,21 +74,32 @@ export default function AddPerson() {
         ]}
       >
         <Ionicons
-          name="lock-closed-outline"
-          size={54}
+          name="lock-closed"
+          size={52}
           color={colors.error}
         />
 
-        <Text style={styles.deniedTitle}>Kein Bearbeitungszugriff</Text>
-
-        <Text style={styles.deniedText}>
-          Diese Funktion ist für berechtigte Pflegekräfte bzw. Administratoren
-          vorgesehen.
+        <Text style={styles.deniedTitle}>
+          Kein Bearbeitungszugriff
         </Text>
 
-        <Pressable style={styles.backMain} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={20} color="#fff" />
-          <Text style={styles.backMainText}>Zurück</Text>
+        <Text style={styles.deniedText}>
+          Diese Funktion ist für berechtigte Pflegekräfte vorgesehen.
+        </Text>
+
+        <Pressable
+          style={styles.backMain}
+          onPress={() => router.back()}
+        >
+          <Ionicons
+            name="arrow-back"
+            size={20}
+            color="#fff"
+          />
+
+          <Text style={styles.backMainText}>
+            Zurück
+          </Text>
         </Pressable>
       </View>
     );
@@ -102,17 +116,25 @@ export default function AddPerson() {
       ]}
     >
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.headerButton}>
+        <Pressable
+          onPress={() => router.back()}
+          style={styles.headerButton}
+        >
           <Ionicons
             name="arrow-back"
-            size={25}
+            size={24}
             color={colors.onSurface}
           />
         </Pressable>
 
         <View style={styles.headerCenter}>
-          <Text style={styles.title}>Person hinzufügen</Text>
-          <Text style={styles.subtitle}>Rolle auswählen</Text>
+          <Text style={styles.title}>
+            Person hinzufügen
+          </Text>
+
+          <Text style={styles.subtitle}>
+            Rolle auswählen
+          </Text>
         </View>
 
         <View style={styles.headerButton} />
@@ -128,6 +150,7 @@ export default function AddPerson() {
             size={22}
             color={colors.brandPrimary}
           />
+
           <Text style={styles.infoText}>
             Jede Rolle erhält jetzt einen eigenen vollständigen Datensatz.
             Dadurch bleiben Patientenakte, Angehörige, Ärzte und PFK sauber
@@ -138,7 +161,7 @@ export default function AddPerson() {
         {options.map((option) => (
           <Pressable
             key={option.title}
-onPress={() => router.push(option.route as any)}
+            onPress={() => router.push(option.route as any)}
             style={({ pressed }) => [
               styles.card,
               pressed && styles.cardPressed,
@@ -147,13 +170,16 @@ onPress={() => router.push(option.route as any)}
             <View style={styles.iconBox}>
               <Ionicons
                 name={option.icon}
-                size={29}
+                size={26}
                 color={colors.brandPrimary}
               />
             </View>
 
             <View style={styles.cardText}>
-              <Text style={styles.cardTitle}>{option.title}</Text>
+              <Text style={styles.cardTitle}>
+                {option.title}
+              </Text>
+
               <Text style={styles.cardDescription}>
                 {option.description}
               </Text>
@@ -168,7 +194,10 @@ onPress={() => router.push(option.route as any)}
         ))}
 
         <View style={styles.noteBox}>
-          <Text style={styles.noteTitle}>Wichtig</Text>
+          <Text style={styles.noteTitle}>
+            Wichtig
+          </Text>
+
           <Text style={styles.noteText}>
             Medikamente, Wunddokumentation, Ärzte, Angehörige und PFK werden
             später direkt mit dem ausgewählten Patienten verknüpft. Wir
@@ -185,6 +214,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.surfaceSecondary,
   },
+
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -195,31 +225,37 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+
   headerButton: {
     width: 42,
     height: 42,
     alignItems: "center",
     justifyContent: "center",
   },
+
   headerCenter: {
     alignItems: "center",
     flex: 1,
   },
+
   title: {
     fontSize: 19,
     fontWeight: "800",
     color: colors.onSurface,
   },
+
   subtitle: {
     marginTop: 2,
     fontSize: 12,
     color: colors.onSurfaceSecondary,
   },
+
   content: {
     padding: spacing.lg,
     paddingBottom: spacing.xl * 2,
     gap: spacing.md,
   },
+
   infoBox: {
     flexDirection: "row",
     gap: spacing.sm,
@@ -229,12 +265,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+
   infoText: {
     flex: 1,
     fontSize: 14,
     lineHeight: 20,
     color: colors.onSurfaceSecondary,
   },
+
   card: {
     flexDirection: "row",
     alignItems: "center",
@@ -245,9 +283,11 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.md,
   },
+
   cardPressed: {
     opacity: 0.78,
   },
+
   iconBox: {
     width: 52,
     height: 52,
@@ -256,20 +296,24 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: colors.surfaceSecondary,
   },
+
   cardText: {
     flex: 1,
   },
+
   cardTitle: {
     fontSize: 17,
     fontWeight: "800",
     color: colors.onSurface,
   },
+
   cardDescription: {
     marginTop: 4,
     fontSize: 13,
     lineHeight: 19,
     color: colors.onSurfaceSecondary,
   },
+
   noteBox: {
     marginTop: spacing.sm,
     padding: spacing.md,
@@ -278,16 +322,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+
   noteTitle: {
     fontWeight: "800",
     color: colors.onSurface,
     marginBottom: 5,
   },
+
   noteText: {
     fontSize: 13,
     lineHeight: 19,
     color: colors.onSurfaceSecondary,
   },
+
   denied: {
     flex: 1,
     justifyContent: "center",
@@ -295,6 +342,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     backgroundColor: colors.surfaceSecondary,
   },
+
   deniedTitle: {
     marginTop: spacing.lg,
     fontSize: 22,
@@ -302,6 +350,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: colors.onSurface,
   },
+
   deniedText: {
     marginTop: spacing.sm,
     fontSize: 15,
@@ -309,6 +358,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: colors.onSurfaceSecondary,
   },
+
   backMain: {
     marginTop: spacing.xl,
     minWidth: 160,
@@ -320,6 +370,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: colors.brandPrimary,
   },
+
   backMainText: {
     color: "#fff",
     fontWeight: "800",

@@ -150,14 +150,16 @@ export default function Dashboard() {
     intelligence?.narrative ||
     "Noch keine vollständige AI-Auswertung verfügbar.";
 
-  const firstName = (user?.name || "").split(" ")[0] || "Willkommen";
+  const activeRole = accessUser?.role || user?.role || "patient";
+  const activeName = accessUser?.name || user?.name || "";
+  const firstName = activeName.split(" ")[0] || "Willkommen";
 
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
         <View>
           <Text style={styles.greeting}>Hallo, {firstName}</Text>
-          <Text style={styles.role}>{ROLES[user?.role || "patient"]}</Text>
+          <Text style={styles.role}>{ROLES[activeRole] || ROLES.patient}</Text>
         </View>
         <Pressable testID="header-bell" onPress={() => router.push("/notifications")} style={styles.bell}>
           <Ionicons name="notifications-outline" size={22} color={colors.brand} />

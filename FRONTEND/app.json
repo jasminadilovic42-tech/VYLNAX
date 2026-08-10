@@ -4,9 +4,7 @@
     "slug": "vylnax",
     "version": "0.2.1",
 
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "0.2.1",
 
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

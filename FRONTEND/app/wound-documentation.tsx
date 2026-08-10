@@ -31,6 +31,16 @@ type Person = {
   specialization?: string;
 };
 
+type WoundAiSuggestion = {
+  description?: string | null;
+  wound_base?: string | null;
+  wound_edge?: string | null;
+  wound_surrounding_skin?: string | null;
+  exudate_visible?: string | null;
+  visible_findings?: string | null;
+  limitations?: string | null;
+};
+
 type WoundRecord = {
   id: string;
   patient_id: string;
@@ -128,6 +138,9 @@ export default function WoundDocumentation() {
   const [progress, setProgress] = useState("Neu");
   const [nextChange, setNextChange] = useState("");
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
+  const [descriptionMode, setDescriptionMode] = useState<"ai" | "manual" | null>(null);
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  const [aiSuggestion, setAiSuggestion] = useState<WoundAiSuggestion | null>(null);
 
   const load = useCallback(async () => {
     if (!activePatient?.id) {
@@ -193,6 +206,8 @@ export default function WoundDocumentation() {
 
       if (picture?.base64) {
         setPhotoDataUrl(`data:image/jpeg;base64,${picture.base64}`);
+        setDescriptionMode(null);
+        setAiSuggestion(null);
         setCameraOpen(false);
       }
     } catch (error) {
@@ -200,6 +215,79 @@ export default function WoundDocumentation() {
     } finally {
       setTakingPhoto(false);
     }
+  };
+
+  const analyzeWoundPhoto = async () => {
+    if (!activePatient?.id) {
+      Alert.alert("Kein Patient", "Bitte zuerst einen Patienten auswählen.");
+      return;
+    }
+
+    if (!photoDataUrl) {
+      Alert.alert("Kein Foto", "Bitte zuerst ein Wundfoto aufnehmen.");
+      return;
+    }
+
+    setDescriptionMode("ai");
+    setAiAnalyzing(true);
+    setAiSuggestion(null);
+
+    try {
+      const result = await api<WoundAiSuggestion>(
+        `/patients/${activePatient.id}/wounds/analyze-photo`,
+        {
+          method: "POST",
+          body: {
+            photo_data_url: photoDataUrl,
+            wound_type: woundType || null,
+            location: location.trim() || null,
+          },
+        }
+      );
+
+      setAiSuggestion(result);
+    } catch (error: any) {
+      Alert.alert(
+        "KI-Analyse nicht möglich",
+        String(
+          error?.message ||
+            "Das Foto konnte momentan nicht mit KI beschrieben werden."
+        )
+      );
+    } finally {
+      setAiAnalyzing(false);
+    }
+  };
+
+  const applyAiSuggestion = () => {
+    if (!aiSuggestion) return;
+
+    if (aiSuggestion.description) {
+      setDescription(aiSuggestion.description);
+    }
+    if (aiSuggestion.wound_base) {
+      setWoundBase(aiSuggestion.wound_base);
+    }
+    if (aiSuggestion.wound_edge) {
+      setWoundEdge(aiSuggestion.wound_edge);
+    }
+    if (aiSuggestion.wound_surrounding_skin) {
+      setSurroundingSkin(aiSuggestion.wound_surrounding_skin);
+    }
+    if (aiSuggestion.exudate_visible) {
+      setExudateType(aiSuggestion.exudate_visible);
+    }
+
+    setDescriptionMode("manual");
+    Alert.alert(
+      "KI-Vorschlag übernommen",
+      "Bitte alle übernommenen Angaben fachlich prüfen, bei Bedarf bearbeiten und erst danach speichern."
+    );
+  };
+
+  const discardAiSuggestion = () => {
+    setAiSuggestion(null);
+    setDescriptionMode("manual");
   };
 
   const resetForm = () => {
@@ -225,6 +313,9 @@ export default function WoundDocumentation() {
     setProgress("Neu");
     setNextChange("");
     setPhotoDataUrl(null);
+    setDescriptionMode(null);
+    setAiSuggestion(null);
+    setAiAnalyzing(false);
   };
 
   const save = async () => {
@@ -551,12 +642,28 @@ export default function WoundDocumentation() {
         {photoDataUrl ? (
           <View style={styles.photoCard}>
             <Image source={{ uri: photoDataUrl }} style={styles.photo} />
+
             <View style={styles.photoActions}>
-              <Pressable style={styles.secondaryButton} onPress={() => void openCamera()}>
-                <Ionicons name="camera-outline" size={19} color={colors.brandPrimary} />
+              <Pressable
+                style={styles.secondaryButton}
+                onPress={() => void openCamera()}
+              >
+                <Ionicons
+                  name="camera-outline"
+                  size={19}
+                  color={colors.brandPrimary}
+                />
                 <Text style={styles.secondaryButtonText}>Neu aufnehmen</Text>
               </Pressable>
-              <Pressable style={styles.deletePhoto} onPress={() => setPhotoDataUrl(null)}>
+
+              <Pressable
+                style={styles.deletePhoto}
+                onPress={() => {
+                  setPhotoDataUrl(null);
+                  setDescriptionMode(null);
+                  setAiSuggestion(null);
+                }}
+              >
                 <Ionicons name="trash-outline" size={20} color={colors.error} />
               </Pressable>
             </View>
@@ -572,6 +679,175 @@ export default function WoundDocumentation() {
           Foto nur mit entsprechender Einwilligung und gemäß den Datenschutzvorgaben
           der Einrichtung verwenden.
         </Text>
+
+        {photoDataUrl ? (
+          <View style={styles.descriptionChoiceCard}>
+            <Text style={styles.descriptionChoiceTitle}>
+              Wie soll die Wunde beschrieben werden?
+            </Text>
+
+            <Text style={styles.descriptionChoiceText}>
+              Die KI erstellt nur einen prüfpflichtigen Vorschlag. Die fachliche
+              Bewertung und Freigabe bleibt bei PFK, Wundexperte/Wundmanager oder Arzt.
+            </Text>
+
+            <View style={styles.descriptionChoiceRow}>
+              <Pressable
+                disabled={aiAnalyzing}
+                onPress={() => void analyzeWoundPhoto()}
+                style={[
+                  styles.aiChoiceButton,
+                  descriptionMode === "ai" && styles.aiChoiceButtonActive,
+                  aiAnalyzing && { opacity: 0.6 },
+                ]}
+              >
+                {aiAnalyzing ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Ionicons name="sparkles" size={22} color="#fff" />
+                )}
+                <Text style={styles.aiChoiceButtonText}>
+                  {aiAnalyzing ? "KI analysiert…" : "Mit KI beschreiben"}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => {
+                  setDescriptionMode("manual");
+                  setAiSuggestion(null);
+                }}
+                style={[
+                  styles.manualChoiceButton,
+                  descriptionMode === "manual" && styles.manualChoiceButtonActive,
+                ]}
+              >
+                <Ionicons
+                  name="create-outline"
+                  size={22}
+                  color={
+                    descriptionMode === "manual"
+                      ? "#fff"
+                      : colors.brandPrimary
+                  }
+                />
+                <Text
+                  style={[
+                    styles.manualChoiceButtonText,
+                    descriptionMode === "manual" && { color: "#fff" },
+                  ]}
+                >
+                  Selbst beschreiben
+                </Text>
+              </Pressable>
+            </View>
+
+            {aiSuggestion ? (
+              <View style={styles.aiSuggestionCard}>
+                <View style={styles.aiSuggestionHeader}>
+                  <Ionicons
+                    name="sparkles"
+                    size={22}
+                    color={colors.brandPrimary}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.aiSuggestionTitle}>KI-Vorschlag</Text>
+                    <Text style={styles.aiSuggestionSub}>
+                      Noch nicht gespeichert · bitte fachlich prüfen
+                    </Text>
+                  </View>
+                </View>
+
+                {!!aiSuggestion.description && (
+                  <AiSuggestionLine
+                    label="Beschreibung"
+                    value={aiSuggestion.description}
+                  />
+                )}
+
+                {!!aiSuggestion.wound_base && (
+                  <AiSuggestionLine
+                    label="Wundgrund"
+                    value={aiSuggestion.wound_base}
+                  />
+                )}
+
+                {!!aiSuggestion.wound_edge && (
+                  <AiSuggestionLine
+                    label="Wundrand"
+                    value={aiSuggestion.wound_edge}
+                  />
+                )}
+
+                {!!aiSuggestion.wound_surrounding_skin && (
+                  <AiSuggestionLine
+                    label="Wundumgebung"
+                    value={aiSuggestion.wound_surrounding_skin}
+                  />
+                )}
+
+                {!!aiSuggestion.exudate_visible && (
+                  <AiSuggestionLine
+                    label="Sichtbares Exsudat"
+                    value={aiSuggestion.exudate_visible}
+                  />
+                )}
+
+                {!!aiSuggestion.visible_findings && (
+                  <AiSuggestionLine
+                    label="Weitere sichtbare Merkmale"
+                    value={aiSuggestion.visible_findings}
+                  />
+                )}
+
+                {!!aiSuggestion.limitations && (
+                  <View style={styles.aiLimitBox}>
+                    <Ionicons
+                      name="information-circle-outline"
+                      size={18}
+                      color="#7A5B00"
+                    />
+                    <Text style={styles.aiLimitText}>
+                      {aiSuggestion.limitations}
+                    </Text>
+                  </View>
+                )}
+
+                <View style={styles.aiActions}>
+                  <Pressable
+                    onPress={applyAiSuggestion}
+                    style={styles.applyAiButton}
+                  >
+                    <Ionicons name="checkmark" size={20} color="#fff" />
+                    <Text style={styles.applyAiButtonText}>
+                      KI-Vorschlag übernehmen
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={discardAiSuggestion}
+                    style={styles.discardAiButton}
+                  >
+                    <Text style={styles.discardAiButtonText}>Verwerfen</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
+
+            {descriptionMode === "manual" ? (
+              <View style={styles.manualInfo}>
+                <Ionicons
+                  name="create-outline"
+                  size={19}
+                  color={colors.brandPrimary}
+                />
+                <Text style={styles.manualInfoText}>
+                  Selbstbeschreibung aktiv. Die Felder Beschreibung, Wundgrund,
+                  Wundrand und Wundumgebung können oben frei bearbeitet werden.
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         <Section title="Verlauf" icon="trending-up-outline" />
 
@@ -658,6 +934,21 @@ export default function WoundDocumentation() {
         )}
       </ScrollView>
     </KeyboardAvoidingView>
+  );
+}
+
+function AiSuggestionLine({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.aiSuggestionLine}>
+      <Text style={styles.aiSuggestionLabel}>{label}</Text>
+      <Text style={styles.aiSuggestionValue}>{value}</Text>
+    </View>
   );
 }
 
@@ -835,6 +1126,169 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 15,
     color: colors.onSurface,
+  },
+  descriptionChoiceCard: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  descriptionChoiceTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: colors.onSurface,
+  },
+  descriptionChoiceText: {
+    marginTop: 5,
+    fontSize: 12,
+    lineHeight: 18,
+    color: colors.onSurfaceSecondary,
+  },
+  descriptionChoiceRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+  },
+  aiChoiceButton: {
+    flex: 1,
+    minHeight: 58,
+    borderRadius: 13,
+    backgroundColor: colors.brandPrimary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingHorizontal: 10,
+  },
+  aiChoiceButtonActive: {
+    opacity: 0.9,
+  },
+  aiChoiceButtonText: {
+    flexShrink: 1,
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  manualChoiceButton: {
+    flex: 1,
+    minHeight: 58,
+    borderRadius: 13,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.brandPrimary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingHorizontal: 10,
+  },
+  manualChoiceButtonActive: {
+    backgroundColor: colors.brandPrimary,
+  },
+  manualChoiceButtonText: {
+    flexShrink: 1,
+    color: colors.brandPrimary,
+    fontSize: 13,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  aiSuggestionCard: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  aiSuggestionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    marginBottom: 4,
+  },
+  aiSuggestionTitle: {
+    color: colors.onSurface,
+    fontWeight: "800",
+    fontSize: 16,
+  },
+  aiSuggestionSub: {
+    marginTop: 2,
+    color: colors.onSurfaceTertiary,
+    fontSize: 11,
+  },
+  aiSuggestionLine: {
+    marginTop: 11,
+  },
+  aiSuggestionLabel: {
+    color: colors.brandPrimary,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  aiSuggestionValue: {
+    marginTop: 3,
+    color: colors.onSurfaceSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  aiLimitBox: {
+    marginTop: 12,
+    flexDirection: "row",
+    gap: 7,
+    borderRadius: 10,
+    padding: 10,
+    backgroundColor: "#FFF5D9",
+  },
+  aiLimitText: {
+    flex: 1,
+    color: "#6B5300",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  aiActions: {
+    marginTop: 14,
+    gap: 8,
+  },
+  applyAiButton: {
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: colors.brandPrimary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  applyAiButtonText: {
+    color: "#fff",
+    fontWeight: "800",
+    fontSize: 14,
+  },
+  discardAiButton: {
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+  },
+  discardAiButtonText: {
+    color: colors.onSurfaceSecondary,
+    fontWeight: "800",
+  },
+  manualInfo: {
+    marginTop: 12,
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "flex-start",
+  },
+  manualInfoText: {
+    flex: 1,
+    color: colors.onSurfaceSecondary,
+    fontSize: 12,
+    lineHeight: 18,
   },
   photoButton: {
     height: 58,

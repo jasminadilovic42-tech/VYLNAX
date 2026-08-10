@@ -50,10 +50,10 @@ function normalizeRole(role?: string | null): string {
 export default function AddCaregiver() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { accessUser } = useAuth();
   const { activePatient } = useApp();
 
-  const role = normalizeRole(user?.role);
+  const role = normalizeRole(accessUser?.role);
   const canManageCaregivers = role === "caregiver";
 
   const [firstName, setFirstName] = useState("");
@@ -185,7 +185,7 @@ export default function AddCaregiver() {
     }
   };
 
-  if (user && !canManageCaregivers) {
+  if (accessUser && !canManageCaregivers) {
     return (
       <View
         style={[

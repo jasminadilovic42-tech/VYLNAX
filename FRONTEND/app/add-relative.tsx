@@ -43,10 +43,10 @@ function normalizeRole(role?: string | null): string {
 export default function AddRelative() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { accessUser } = useAuth();
   const { activePatient } = useApp();
 
-  const role = normalizeRole(user?.role);
+  const role = normalizeRole(accessUser?.role);
   const canManageRelatives = role === "caregiver";
 
   const [firstName, setFirstName] = useState("");
@@ -173,7 +173,7 @@ export default function AddRelative() {
     }
   };
 
-  if (user && !canManageRelatives) {
+  if (accessUser && !canManageRelatives) {
     return (
       <View
         style={[
