@@ -652,6 +652,36 @@ export default function PatientRecord() {
           />
         </Section>
 
+        <Pressable
+          onPress={() => router.push("/patient-sis" as any)}
+          style={styles.sisButton}
+        >
+          <View style={styles.sisIcon}>
+            <Ionicons
+              name="document-text-outline"
+              size={26}
+              color="#FFFFFF"
+            />
+          </View>
+
+          <View style={styles.flexOne}>
+            <Text style={styles.sisTitle}>
+              SIS®
+            </Text>
+
+            <Text style={styles.sisText}>
+              Strukturierte Informationssammlung für{" "}
+              {activePatient.name} öffnen und bearbeiten.
+            </Text>
+          </View>
+
+          <Ionicons
+            name="chevron-forward"
+            size={23}
+            color="#FFFFFF"
+          />
+        </Pressable>
+
         {canAccessWounds && (
           <Pressable
             onPress={() =>
@@ -835,6 +865,38 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     color: colors.onSurface,
     fontWeight: "500",
+  },
+
+  sisButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: colors.brandPrimary,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginTop: spacing.sm,
+  },
+
+  sisIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.16)",
+  },
+
+  sisTitle: {
+    color: "#FFFFFF",
+    fontSize: 17,
+    fontWeight: "800",
+  },
+
+  sisText: {
+    color: "#EAF4FF",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 3,
   },
 
   woundButton: {
