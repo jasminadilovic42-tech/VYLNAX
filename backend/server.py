@@ -4259,6 +4259,273 @@ async def delete_wound(
     })
 
     return {"ok": True}
+# ============================================================
+# SIS - Strukturierte Informationssammlung
+# ============================================================
+
+class SisRiskMatrix(BaseModel):
+    fall: bool = False
+    pressure_ulcer: bool = False
+    pain: bool = False
+    nutrition: bool = False
+    incontinence: bool = False
+    aspiration: bool = False
+    dehydration: bool = False
+    other: bool = False
+
+
+class SisUpdate(BaseModel):
+    patient_id: str
+
+    current_concern: str = ""
+
+    cognitive_communication: str = ""
+    mobility: str = ""
+    disease_related: str = ""
+    self_care: str = ""
+    social_relationships: str = ""
+    living_environment: str = ""
+
+    risks: SisRiskMatrix = Field(
+        default_factory=SisRiskMatrix
+    )
+
+    risk_notes: str = ""
+
+    resources: str = ""
+    wishes: str = ""
+    nursing_focus: str = ""
+
+    status: str = "draft"
+
+
+@api_router.get("/patients/{patient_id}/sis")
+async def get_patient_sis(
+    patient_id: str,
+    user=Depends(get_current_user),
+):
+    # Pacijent mora pripadati ovom VYLNAX accountu.
+    await _owns_patient(user, patient_id)
+
+    sis = await db.patient_sis.find_one(
+        {
+            "owner_id": user["user_id"],
+            "patient_id": patient_id,
+        },
+        {
+            "_id": 0,
+        },
+    )
+
+    if not sis:
+        raise HTTPException(
+            status_code=404,
+            detail="SIS not found",
+        )
+
+    return sis
+
+
+@api_router.put("/patients/{patient_id}/sis")
+async def save_patient_sis(
+    patient_id: str,
+    body: SisUpdate,
+    user=Depends(get_current_user),
+    access=Depends(require_write_access),
+):
+    # Pacijent mora pripadati ovom VYLNAX accountu.
+    patient = await _owns_patient(
+        user,
+        patient_id,
+    )
+
+    # Provjera prava pristupa aktivnom pacijentu.
+    await _assert_access_patient(
+        access,
+        patient_id,
+    )
+
+    if body.patient_id != patient_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Patient ID mismatch",
+        )
+
+    status = (
+        body.status.strip().lower()
+        if body.status
+        else "draft"
+    )
+
+    if status not in {
+        "draft",
+        "completed",
+    }:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid SIS status",
+        )
+
+    existing = await db.patient_sis.find_one(
+        {
+            "owner_id": user["user_id"],
+            "patient_id": patient_id,
+        },
+        {
+            "_id": 0,
+        },
+    )
+
+    now = now_utc().isoformat()
+
+    sis_id = (
+        existing.get("id")
+        if existing
+        else uid("sis")
+    )
+
+    created_at = (
+        existing.get("created_at")
+        if existing
+        else now
+    )
+
+    values = body.model_dump()
+
+    risks = values.get("risks") or {}
+
+    # Pydantic model može vratiti objekat;
+    # pretvaramo ga u obični dict za bazu.
+    if hasattr(risks, "model_dump"):
+        risks = risks.model_dump()
+
+    doc = {
+        "id": sis_id,
+        "owner_id": user["user_id"],
+        "patient_id": patient_id,
+
+        "patient_name": patient.get(
+            "name",
+            "",
+        ),
+
+        "current_concern": (
+            values.get("current_concern")
+            or ""
+        ),
+
+        "cognitive_communication": (
+            values.get(
+                "cognitive_communication"
+            )
+            or ""
+        ),
+
+        "mobility": (
+            values.get("mobility")
+            or ""
+        ),
+
+        "disease_related": (
+            values.get("disease_related")
+            or ""
+        ),
+
+        "self_care": (
+            values.get("self_care")
+            or ""
+        ),
+
+        "social_relationships": (
+            values.get(
+                "social_relationships"
+            )
+            or ""
+        ),
+
+        "living_environment": (
+            values.get(
+                "living_environment"
+            )
+            or ""
+        ),
+
+        "risks": risks,
+
+        "risk_notes": (
+            values.get("risk_notes")
+            or ""
+        ),
+
+        "resources": (
+            values.get("resources")
+            or ""
+        ),
+
+        "wishes": (
+            values.get("wishes")
+            or ""
+        ),
+
+        "nursing_focus": (
+            values.get("nursing_focus")
+            or ""
+        ),
+
+        "status": status,
+
+        "created_at": created_at,
+        "updated_at": now,
+
+        "created_by_name": (
+            existing.get(
+                "created_by_name"
+            )
+            if existing
+            else access[
+                "access_user"
+            ].get("name")
+        ),
+
+        "updated_by_name": access[
+            "access_user"
+        ].get("name"),
+
+        "updated_by_role": access[
+            "access_user"
+        ].get("role"),
+    }
+
+    await db.patient_sis.update_one(
+        {
+            "owner_id": user["user_id"],
+            "patient_id": patient_id,
+        },
+        {
+            "$set": doc,
+        },
+        upsert=True,
+    )
+
+    await _write_audit_log(
+        owner_id=user["user_id"],
+        action="sis_updated",
+        access_user=access[
+            "access_user"
+        ],
+        patient_id=patient_id,
+        target_type="sis",
+        target_id=sis_id,
+        details={
+            "status": status,
+            "patient_name": patient.get(
+                "name"
+            ),
+        },
+    )
+
+    return doc
+
 app.include_router(api_router)
 
 app.add_middleware(
