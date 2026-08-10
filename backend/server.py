@@ -142,6 +142,7 @@ class ActivePatientRequest(BaseModel):
 
 class PatientCreate(BaseModel):
     name: str
+    photo_data: Optional[str] = None
 
     first_name: Optional[str] = None
     last_name: Optional[str] = None
