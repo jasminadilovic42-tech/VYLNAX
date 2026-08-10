@@ -682,6 +682,23 @@ export default function PatientRecord() {
           />
         </Pressable>
 
+        <Pressable
+          onPress={() => router.push("/patient-measures" as any)}
+          style={styles.measureButton}
+        >
+          <View style={styles.measureIcon}>
+            <Ionicons name="clipboard-outline" size={26} color="#FFFFFF" />
+          </View>
+          <View style={styles.flexOne}>
+            <Text style={styles.measureTitle}>Maßnahmenplan</Text>
+            <Text style={styles.measureText}>
+              Pflegemaßnahmen für {activePatient.name} planen, AI-Vorschläge prüfen,
+              anpassen, annehmen oder ablehnen.
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={23} color="#FFFFFF" />
+        </Pressable>
+
         {canAccessWounds && (
           <Pressable
             onPress={() =>
@@ -893,6 +910,38 @@ const styles = StyleSheet.create({
   },
 
   sisText: {
+    color: "#EAF4FF",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 3,
+  },
+
+  measureButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: colors.brandPrimary,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginTop: spacing.sm,
+  },
+
+  measureIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.16)",
+  },
+
+  measureTitle: {
+    color: "#FFFFFF",
+    fontSize: 17,
+    fontWeight: "800",
+  },
+
+  measureText: {
     color: "#EAF4FF",
     fontSize: 12,
     lineHeight: 18,
