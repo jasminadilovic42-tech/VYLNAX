@@ -747,14 +747,22 @@ async def require_write_access(
 
 
 async def _assert_access_patient(access: dict, patient_id: str):
+    role = (access["access_user"].get("role") or "").lower()
     active_patient_id = access.get("patient_id")
     assigned_patient_id = access["access_user"].get("patient_id")
 
+    # Pflegefachkraft može raditi sa bilo kojim pacijentom
+    # koji pripada istom VYLNAX accountu.
+    if role == "caregiver":
+        return
+
+    # Ostale uloge ostaju ograničene na svog pacijenta.
     if active_patient_id and active_patient_id != patient_id:
         raise HTTPException(
             status_code=403,
             detail="This access session is connected to another patient",
         )
+
     if assigned_patient_id and assigned_patient_id != patient_id:
         raise HTTPException(
             status_code=403,
@@ -1150,10 +1158,20 @@ async def set_active_patient(
     body: ActivePatientRequest,
     access=Depends(get_current_access_session),
 ):
+    # Provjeri da pacijent pripada ovom VYLNAX accountu.
     await _owns_patient(access["owner"], body.patient_id)
 
+    role = (access["access_user"].get("role") or "").lower()
     assigned_patient_id = access["access_user"].get("patient_id")
-    if assigned_patient_id and assigned_patient_id != body.patient_id:
+
+    # Pflegefachkraft može prelaziti između svih pacijenata.
+    # Patient / Angehörige / Arzt ostaju ograničeni
+    # na pacijenta kojem su dodijeljeni.
+    if (
+        role != "caregiver"
+        and assigned_patient_id
+        and assigned_patient_id != body.patient_id
+    ):
         raise HTTPException(
             status_code=403,
             detail="Access profile is assigned to another patient",
@@ -1168,6 +1186,7 @@ async def set_active_patient(
             }
         },
     )
+
     await _write_audit_log(
         owner_id=access["owner"]["user_id"],
         action="active_patient_changed",
@@ -1176,7 +1195,11 @@ async def set_active_patient(
         target_type="patient",
         target_id=body.patient_id,
     )
-    return {"ok": True, "patient_id": body.patient_id}
+
+    return {
+        "ok": True,
+        "patient_id": body.patient_id,
+    }
 
 
 @api_router.post("/access/biometric")
