@@ -4525,6 +4525,622 @@ async def save_patient_sis(
     )
 
     return doc
+# ============================================================
+# VYLNAX - MASSNAHMENPLAN + KI-VORSCHLÄGE
+# Diesen Block direkt VOR app.include_router(api_router) einfügen.
+# Voraussetzung:
+# - bestehende Funktionen: uid, now_utc, _owns_patient,
+#   _assert_access_patient, require_write_access, _write_audit_log,
+#   _gemini_generate, _clean_json_text
+# - bestehende Imports: BaseModel, Optional, HTTPException, Depends, json
+# ============================================================
+
+
+class MeasureCreate(BaseModel):
+    topic: str = ""
+    title: str
+    description: str
+    rationale: str = ""
+    frequency: str = ""
+    responsible: str = "Pflegefachkraft"
+    evaluation_date: str = ""
+    source: str = "caregiver"
+    status: str = "active"
+
+
+class MeasureUpdate(BaseModel):
+    topic: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    rationale: Optional[str] = None
+    frequency: Optional[str] = None
+    responsible: Optional[str] = None
+    evaluation_date: Optional[str] = None
+    source: Optional[str] = None
+    status: Optional[str] = None
+
+
+def _normalize_measure_status(value: Optional[str]) -> str:
+    status = str(value or "active").strip().lower()
+
+    if status not in {"suggested", "active", "rejected"}:
+        raise HTTPException(
+            status_code=400,
+            detail="INVALID_MEASURE_STATUS",
+        )
+
+    return status
+
+
+def _normalize_measure_source(value: Optional[str]) -> str:
+    source = str(value or "caregiver").strip().lower()
+
+    if source not in {"ai", "caregiver"}:
+        raise HTTPException(
+            status_code=400,
+            detail="INVALID_MEASURE_SOURCE",
+        )
+
+    return source
+
+
+@api_router.get("/patients/{patient_id}/measures")
+async def list_patient_measures(
+    patient_id: str,
+    user=Depends(get_current_user),
+):
+    await _owns_patient(user, patient_id)
+
+    rows = await db.patient_measures.find(
+        {
+            "owner_id": user["user_id"],
+            "patient_id": patient_id,
+        },
+        {
+            "_id": 0,
+        },
+    ).to_list(1000)
+
+    rows.sort(
+        key=lambda item: (
+            0 if item.get("status") == "suggested" else
+            1 if item.get("status") == "active" else
+            2,
+            item.get("created_at", ""),
+        )
+    )
+
+    return rows
+
+
+@api_router.post("/patients/{patient_id}/measures")
+async def create_patient_measure(
+    patient_id: str,
+    body: MeasureCreate,
+    user=Depends(get_current_user),
+    access=Depends(require_write_access),
+):
+    patient = await _owns_patient(user, patient_id)
+    await _assert_access_patient(access, patient_id)
+
+    title = str(body.title or "").strip()
+    description = str(body.description or "").strip()
+
+    if not title:
+        raise HTTPException(
+            status_code=400,
+            detail="TITLE_REQUIRED",
+        )
+
+    if not description:
+        raise HTTPException(
+            status_code=400,
+            detail="DESCRIPTION_REQUIRED",
+        )
+
+    source = _normalize_measure_source(body.source)
+    status = _normalize_measure_status(body.status)
+
+    # Ručno kreirana PFK mjera ne smije se predstavljati kao AI prijedlog.
+    if source == "caregiver" and status == "suggested":
+        status = "active"
+
+    now = now_utc().isoformat()
+
+    doc = {
+        "id": uid("measure"),
+        "owner_id": user["user_id"],
+        "patient_id": patient_id,
+        "patient_name": patient.get("name", ""),
+
+        "topic": str(body.topic or "").strip(),
+        "title": title,
+        "description": description,
+        "rationale": str(body.rationale or "").strip(),
+        "frequency": str(body.frequency or "").strip(),
+        "responsible": str(
+            body.responsible or "Pflegefachkraft"
+        ).strip(),
+        "evaluation_date": str(
+            body.evaluation_date or ""
+        ).strip(),
+
+        "source": source,
+        "status": status,
+
+        "created_at": now,
+        "updated_at": now,
+        "created_by_name": access[
+            "access_user"
+        ].get("name"),
+        "created_by_role": access[
+            "access_user"
+        ].get("role"),
+
+        "approved_by_name": (
+            access["access_user"].get("name")
+            if status == "active"
+            else None
+        ),
+        "approved_at": (
+            now if status == "active" else None
+        ),
+
+        "rejected_by_name": None,
+        "rejected_at": None,
+    }
+
+    await db.patient_measures.insert_one(dict(doc))
+
+    await _write_audit_log(
+        owner_id=user["user_id"],
+        action="measure_created",
+        access_user=access["access_user"],
+        patient_id=patient_id,
+        target_type="measure",
+        target_id=doc["id"],
+        details={
+            "title": title,
+            "source": source,
+            "status": status,
+        },
+    )
+
+    return doc
+
+
+@api_router.put(
+    "/patients/{patient_id}/measures/{measure_id}"
+)
+async def update_patient_measure(
+    patient_id: str,
+    measure_id: str,
+    body: MeasureUpdate,
+    user=Depends(get_current_user),
+    access=Depends(require_write_access),
+):
+    await _owns_patient(user, patient_id)
+    await _assert_access_patient(access, patient_id)
+
+    current = await db.patient_measures.find_one(
+        {
+            "id": measure_id,
+            "owner_id": user["user_id"],
+            "patient_id": patient_id,
+        },
+        {
+            "_id": 0,
+        },
+    )
+
+    if not current:
+        raise HTTPException(
+            status_code=404,
+            detail="MEASURE_NOT_FOUND",
+        )
+
+    values = {
+        key: value
+        for key, value in body.model_dump().items()
+        if value is not None
+    }
+
+    for key in (
+        "topic",
+        "title",
+        "description",
+        "rationale",
+        "frequency",
+        "responsible",
+        "evaluation_date",
+    ):
+        if key in values:
+            values[key] = str(
+                values[key] or ""
+            ).strip()
+
+    if "title" in values and not values["title"]:
+        raise HTTPException(
+            status_code=400,
+            detail="TITLE_REQUIRED",
+        )
+
+    if (
+        "description" in values
+        and not values["description"]
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="DESCRIPTION_REQUIRED",
+        )
+
+    if "source" in values:
+        values["source"] = (
+            _normalize_measure_source(
+                values["source"]
+            )
+        )
+
+    previous_status = current.get(
+        "status",
+        "active",
+    )
+
+    if "status" in values:
+        values["status"] = (
+            _normalize_measure_status(
+                values["status"]
+            )
+        )
+
+    now = now_utc().isoformat()
+    new_status = values.get(
+        "status",
+        previous_status,
+    )
+
+    if (
+        new_status == "active"
+        and previous_status != "active"
+    ):
+        values["approved_by_name"] = access[
+            "access_user"
+        ].get("name")
+        values["approved_at"] = now
+        values["rejected_by_name"] = None
+        values["rejected_at"] = None
+
+    if (
+        new_status == "rejected"
+        and previous_status != "rejected"
+    ):
+        values["rejected_by_name"] = access[
+            "access_user"
+        ].get("name")
+        values["rejected_at"] = now
+
+    values["updated_at"] = now
+    values["updated_by_name"] = access[
+        "access_user"
+    ].get("name")
+    values["updated_by_role"] = access[
+        "access_user"
+    ].get("role")
+
+    await db.patient_measures.update_one(
+        {
+            "id": measure_id,
+            "owner_id": user["user_id"],
+            "patient_id": patient_id,
+        },
+        {
+            "$set": values,
+        },
+    )
+
+    updated = {
+        **current,
+        **values,
+    }
+
+    await _write_audit_log(
+        owner_id=user["user_id"],
+        action="measure_updated",
+        access_user=access["access_user"],
+        patient_id=patient_id,
+        target_type="measure",
+        target_id=measure_id,
+        details={
+            "title": updated.get("title"),
+            "status": updated.get("status"),
+            "source": updated.get("source"),
+        },
+    )
+
+    return updated
+
+
+async def _generate_ai_measure_suggestions(
+    *,
+    patient: dict,
+    sis: dict,
+) -> list:
+    if not sis:
+        raise HTTPException(
+            status_code=400,
+            detail="SIS_REQUIRED_FOR_AI_MEASURES",
+        )
+
+    sis_context = {
+        "patient_name": patient.get("name", ""),
+        "current_concern": sis.get(
+            "current_concern",
+            "",
+        ),
+        "cognitive_communication": sis.get(
+            "cognitive_communication",
+            "",
+        ),
+        "mobility": sis.get(
+            "mobility",
+            "",
+        ),
+        "disease_related": sis.get(
+            "disease_related",
+            "",
+        ),
+        "self_care": sis.get(
+            "self_care",
+            "",
+        ),
+        "social_relationships": sis.get(
+            "social_relationships",
+            "",
+        ),
+        "living_environment": sis.get(
+            "living_environment",
+            "",
+        ),
+        "risks": sis.get("risks", {}),
+        "risk_notes": sis.get(
+            "risk_notes",
+            "",
+        ),
+        "resources": sis.get(
+            "resources",
+            "",
+        ),
+        "wishes": sis.get(
+            "wishes",
+            "",
+        ),
+        "nursing_focus": sis.get(
+            "nursing_focus",
+            "",
+        ),
+    }
+
+    system_text = """
+Du unterstützt eine examinierte Pflegefachkraft bei der Erstellung eines
+individuellen pflegerischen Maßnahmenplans auf Basis einer bereits
+dokumentierten SIS.
+
+WICHTIGE SICHERHEITSREGELN:
+- Du erstellst ausschließlich VORSCHLÄGE.
+- Kein Vorschlag darf automatisch aktiviert werden.
+- Die Pflegefachkraft muss jeden Vorschlag prüfen, bearbeiten, annehmen
+  oder ablehnen.
+- Stelle keine neue Diagnose.
+- Erfinde keine Patientendaten.
+- Leite keine Maßnahme aus Informationen ab, die nicht dokumentiert sind.
+- Verordne keine Medikamente.
+- Ändere keine Medikamentendosis und empfehle kein Absetzen oder Beginnen
+  einer Arzneimitteltherapie.
+- Ärztlich angeordnete Behandlungspflege darf nur als bereits dokumentierter
+  Sachverhalt berücksichtigt werden, nicht neu verordnet werden.
+- Formuliere konkrete, beobachtbare und im Pflegealltag umsetzbare Maßnahmen.
+- Berücksichtige Ressourcen, Wünsche und Selbstständigkeit der Person.
+- Bei unklarer Datenlage lieber keinen Vorschlag erstellen.
+- Vermeide generische Maßnahmen ohne Bezug zur SIS.
+- Ausgabe ausschließlich als gültiges JSON-Array.
+- Maximal 10 Vorschläge.
+
+Jedes Element MUSS genau diese Schlüssel besitzen:
+{
+  "topic": "SIS-Themenfeld oder Risiko",
+  "title": "kurzer Titel",
+  "description": "konkrete pflegerische Maßnahme",
+  "rationale": "kurzer Bezug zu dokumentierten SIS-Angaben",
+  "frequency": "Zeitpunkt/Häufigkeit oder leer",
+  "responsible": "Pflegefachkraft/Pflegepersonal oder passend",
+  "evaluation_date": ""
+}
+""".strip()
+
+    message = (
+        "Dokumentierte SIS-Daten:\n"
+        + json.dumps(
+            sis_context,
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+    answer = await _gemini_generate(
+        message,
+        system_text,
+    )
+
+    try:
+        parsed = json.loads(
+            _clean_json_text(answer)
+        )
+    except Exception as exc:
+        logger.warning(
+            "Measure AI invalid JSON: %s / %s",
+            exc,
+            answer[:1200],
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="AI_INVALID_JSON",
+        )
+
+    if not isinstance(parsed, list):
+        raise HTTPException(
+            status_code=502,
+            detail="AI_INVALID_RESPONSE",
+        )
+
+    clean = []
+
+    for raw in parsed[:10]:
+        if not isinstance(raw, dict):
+            continue
+
+        title = str(
+            raw.get("title") or ""
+        ).strip()
+
+        description = str(
+            raw.get("description") or ""
+        ).strip()
+
+        rationale = str(
+            raw.get("rationale") or ""
+        ).strip()
+
+        if not title or not description:
+            continue
+
+        # AI prijedlog bez dokumentovanog razloga ne prihvatamo.
+        if not rationale:
+            continue
+
+        clean.append(
+            {
+                "topic": str(
+                    raw.get("topic") or ""
+                ).strip(),
+                "title": title,
+                "description": description,
+                "rationale": rationale,
+                "frequency": str(
+                    raw.get("frequency") or ""
+                ).strip(),
+                "responsible": str(
+                    raw.get("responsible")
+                    or "Pflegefachkraft"
+                ).strip(),
+                "evaluation_date": str(
+                    raw.get(
+                        "evaluation_date"
+                    )
+                    or ""
+                ).strip(),
+            }
+        )
+
+    return clean
+
+
+@api_router.post(
+    "/patients/{patient_id}/measures/ai-suggest"
+)
+async def create_ai_measure_suggestions(
+    patient_id: str,
+    user=Depends(get_current_user),
+    access=Depends(require_write_access),
+):
+    patient = await _owns_patient(
+        user,
+        patient_id,
+    )
+    await _assert_access_patient(
+        access,
+        patient_id,
+    )
+
+    sis = await db.patient_sis.find_one(
+        {
+            "owner_id": user["user_id"],
+            "patient_id": patient_id,
+        },
+        {
+            "_id": 0,
+        },
+    )
+
+    if not sis:
+        raise HTTPException(
+            status_code=400,
+            detail="Bitte zuerst eine SIS für diesen Patienten dokumentieren.",
+        )
+
+    suggestions = (
+        await _generate_ai_measure_suggestions(
+            patient=patient,
+            sis=sis,
+        )
+    )
+
+    if not suggestions:
+        return []
+
+    now = now_utc().isoformat()
+    saved = []
+
+    for suggestion in suggestions:
+        doc = {
+            "id": uid("measure"),
+            "owner_id": user["user_id"],
+            "patient_id": patient_id,
+            "patient_name": patient.get(
+                "name",
+                "",
+            ),
+
+            **suggestion,
+
+            "source": "ai",
+            "status": "suggested",
+
+            "created_at": now,
+            "updated_at": now,
+
+            "created_by_name": "VYLNAX KI",
+            "created_by_role": "ai",
+
+            "approved_by_name": None,
+            "approved_at": None,
+
+            "rejected_by_name": None,
+            "rejected_at": None,
+        }
+
+        await db.patient_measures.insert_one(
+            dict(doc)
+        )
+
+        saved.append(doc)
+
+    await _write_audit_log(
+        owner_id=user["user_id"],
+        action="ai_measure_suggestions_created",
+        access_user=access["access_user"],
+        patient_id=patient_id,
+        target_type="measure_plan",
+        target_id=patient_id,
+        details={
+            "suggestion_count": len(saved),
+            "note": (
+                "KI-Vorschläge wurden nicht automatisch aktiviert."
+            ),
+        },
+    )
+
+    return saved
+
 
 app.include_router(api_router)
 
