@@ -9,8 +9,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   Switch,
+  Alert,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -136,10 +140,13 @@ function normalizeRole(role?: string | null): string {
 export default function AddPatient() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
   const { accessUser } = useAuth();
 
   const role = normalizeRole(accessUser?.role);
   const canAddPatient = role === "caregiver";
+
+  const [patientPhoto, setPatientPhoto] = useState<string | null>(null);
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -231,6 +238,94 @@ export default function AddPatient() {
     });
   };
 
+
+  const imageSize = Math.min(
+    Math.max(width * 0.34, 112),
+    180
+  );
+
+  const imagePickerOptions: ImagePicker.ImagePickerOptions = {
+    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    allowsEditing: true,
+    aspect: [1, 1],
+    quality: 0.55,
+    base64: true,
+  };
+
+  const setPhotoFromAsset = (
+    asset?: ImagePicker.ImagePickerAsset
+  ) => {
+    if (!asset) {
+      return;
+    }
+
+    if (!asset.base64) {
+      Alert.alert(
+        "Foto konnte nicht verarbeitet werden",
+        "Bitte wählen Sie das Foto erneut aus."
+      );
+      return;
+    }
+
+    const mimeType =
+      asset.mimeType ||
+      (asset.uri.toLowerCase().endsWith(".png")
+        ? "image/png"
+        : "image/jpeg");
+
+    setPatientPhoto(
+      `data:${mimeType};base64,${asset.base64}`
+    );
+  };
+
+  const choosePhotoFromGallery = async () => {
+    const permission =
+      await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert(
+        "Zugriff auf Fotos erforderlich",
+        "Bitte erlauben Sie VYLNAX den Zugriff auf Ihre Fotos."
+      );
+      return;
+    }
+
+    const result =
+      await ImagePicker.launchImageLibraryAsync(
+        imagePickerOptions
+      );
+
+    if (!result.canceled) {
+      setPhotoFromAsset(result.assets?.[0]);
+    }
+  };
+
+  const takePatientPhoto = async () => {
+    const permission =
+      await ImagePicker.requestCameraPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert(
+        "Kamerazugriff erforderlich",
+        "Bitte erlauben Sie VYLNAX den Zugriff auf die Kamera."
+      );
+      return;
+    }
+
+    const result =
+      await ImagePicker.launchCameraAsync(
+        imagePickerOptions
+      );
+
+    if (!result.canceled) {
+      setPhotoFromAsset(result.assets?.[0]);
+    }
+  };
+
+  const removePatientPhoto = () => {
+    setPatientPhoto(null);
+  };
+
   const save = async () => {
     setError("");
 
@@ -272,6 +367,7 @@ export default function AddPatient() {
         method: "POST",
         body: {
           name: `${firstName.trim()} ${lastName.trim()}`,
+          photo_data: patientPhoto,
           first_name: firstName.trim(),
           last_name: lastName.trim(),
           birth_date: birthDate.trim(),
@@ -466,6 +562,98 @@ export default function AddPatient() {
           icon="person-outline"
           title="Persönliche Daten"
         />
+
+        <View style={styles.photoSection}>
+          <Text style={styles.photoLabel}>
+            Patientenfoto
+          </Text>
+
+          <View style={styles.photoPreviewRow}>
+            <View
+              style={[
+                styles.photoPreview,
+                {
+                  width: imageSize,
+                  height: imageSize,
+                  borderRadius: imageSize / 2,
+                },
+              ]}
+            >
+              {patientPhoto ? (
+                <Image
+                  source={{ uri: patientPhoto }}
+                  style={styles.photoImage}
+                  contentFit="cover"
+                  transition={150}
+                />
+              ) : (
+                <View style={styles.photoPlaceholder}>
+                  <Ionicons
+                    name="person"
+                    size={Math.round(imageSize * 0.42)}
+                    color={colors.brandPrimary}
+                  />
+                </View>
+              )}
+            </View>
+
+            <View style={styles.photoActions}>
+              <Pressable
+                onPress={() =>
+                  void takePatientPhoto()
+                }
+                style={styles.photoActionPrimary}
+              >
+                <Ionicons
+                  name="camera-outline"
+                  size={20}
+                  color="#FFFFFF"
+                />
+                <Text style={styles.photoActionPrimaryText}>
+                  Foto aufnehmen
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() =>
+                  void choosePhotoFromGallery()
+                }
+                style={styles.photoActionSecondary}
+              >
+                <Ionicons
+                  name="images-outline"
+                  size={20}
+                  color={colors.brandPrimary}
+                />
+                <Text style={styles.photoActionSecondaryText}>
+                  Aus Galerie wählen
+                </Text>
+              </Pressable>
+
+              {patientPhoto ? (
+                <Pressable
+                  onPress={removePatientPhoto}
+                  style={styles.photoRemoveButton}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={19}
+                    color={colors.error}
+                  />
+                  <Text style={styles.photoRemoveText}>
+                    Foto entfernen
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+
+          <Text style={styles.photoHint}>
+            Das Foto wird quadratisch zugeschnitten und
+            automatisch an Smartphone, Tablet und größere
+            Bildschirme angepasst.
+          </Text>
+        </View>
 
         <Field
           label="Vorname *"
@@ -1337,6 +1525,111 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     marginBottom: spacing.md,
+  },
+
+  photoSection: {
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+
+  photoLabel: {
+    color: colors.onSurface,
+    fontSize: 15,
+    fontWeight: "800",
+    marginBottom: spacing.md,
+  },
+
+  photoPreviewRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+
+  photoPreview: {
+    overflow: "hidden",
+    borderWidth: 3,
+    borderColor: colors.surface,
+    backgroundColor: colors.brandSecondary,
+  },
+
+  photoImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  photoPlaceholder: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.brandSecondary,
+  },
+
+  photoActions: {
+    flex: 1,
+    minWidth: 190,
+    gap: spacing.sm,
+  },
+
+  photoActionPrimary: {
+    minHeight: 48,
+    borderRadius: radius.md,
+    backgroundColor: colors.brandPrimary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+
+  photoActionPrimaryText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+
+  photoActionSecondary: {
+    minHeight: 48,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.brandPrimary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+
+  photoActionSecondaryText: {
+    color: colors.brandPrimary,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+
+  photoRemoveButton: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+  },
+
+  photoRemoveText: {
+    color: colors.error,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  photoHint: {
+    color: colors.onSurfaceSecondary,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: spacing.md,
   },
 
   label: {

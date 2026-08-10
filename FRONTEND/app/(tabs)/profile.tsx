@@ -212,8 +212,14 @@ export default function Profile() {
   const {
     patients,
     activePatient,
-    setActivePatient,
+    relatives,
+    caregivers,
+    doctors,
     loadPatients,
+    loadPatientContacts,
+    selectPatient,
+    loadingPatientContacts,
+    switchingPatient,
   } = useApp();
 
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
@@ -235,15 +241,6 @@ export default function Profile() {
     Record<string, any>
   >({});
 
-  const [relatives, setRelatives] = useState<Relative[]>(
-    []
-  );
-
-  const [caregivers, setCaregivers] = useState<
-    Caregiver[]
-  >([]);
-
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
 
   const [selectedProfile, setSelectedProfile] =
     useState<SelectedProfile>(null);
@@ -268,66 +265,28 @@ export default function Profile() {
     setOverview(map);
   }, [patients]);
 
-  const loadRelatives = useCallback(async () => {
-    try {
-      const result = await api("/relatives");
-
-      setRelatives(
-        Array.isArray(result) ? result : []
-      );
-    } catch (error) {
-      console.error(
-        "Fehler beim Laden der Angehörigen:",
-        error
-      );
-      setRelatives([]);
+  const reloadActivePatientContacts = useCallback(async () => {
+    if (!activePatient?.id) {
+      return;
     }
-  }, []);
 
-  const loadCaregivers = useCallback(async () => {
-    try {
-      const result = await api("/caregivers");
-
-      setCaregivers(
-        Array.isArray(result) ? result : []
-      );
-    } catch (error) {
-      console.error(
-        "Fehler beim Laden der Pflegekräfte:",
-        error
-      );
-      setCaregivers([]);
-    }
-  }, []);
-
-  const loadDoctors = useCallback(async () => {
-    try {
-      const result = await api("/doctors");
-
-      setDoctors(Array.isArray(result) ? result : []);
-    } catch (error) {
-      console.error(
-        "Fehler beim Laden der Hausärzte:",
-        error
-      );
-      setDoctors([]);
-    }
-  }, []);
+    await loadPatientContacts(activePatient.id);
+  }, [activePatient?.id, loadPatientContacts]);
 
   const reloadAllProfiles = useCallback(() => {
     void loadPatients();
-    void loadRelatives();
-    void loadCaregivers();
-    void loadDoctors();
+
+    if (activePatient?.id) {
+      void loadPatientContacts(activePatient.id);
+    }
 
     if (canManageProfiles) {
       void loadAccessUsers();
     }
   }, [
     loadPatients,
-    loadRelatives,
-    loadCaregivers,
-    loadDoctors,
+    loadPatientContacts,
+    activePatient?.id,
     loadAccessUsers,
     canManageProfiles,
   ]);
@@ -395,7 +354,7 @@ export default function Profile() {
         setSelectedProfile(null);
       }
 
-      await loadRelatives();
+      await reloadActivePatientContacts();
     } catch (error) {
       console.error(
         "Fehler beim Löschen des Angehörigen:",
@@ -433,7 +392,7 @@ export default function Profile() {
         setSelectedProfile(null);
       }
 
-      await loadCaregivers();
+      await reloadActivePatientContacts();
     } catch (error) {
       console.error(
         "Fehler beim Löschen der Pflegekraft:",
@@ -469,7 +428,7 @@ export default function Profile() {
         setSelectedProfile(null);
       }
 
-      await loadDoctors();
+      await reloadActivePatientContacts();
     } catch (error) {
       console.error(
         "Fehler beim Löschen des Hausarztes:",
@@ -860,24 +819,44 @@ export default function Profile() {
               <Pressable
                 testID={`select-patient-${patient.id}`}
                 onPress={() => {
-                  setActivePatient(patient);
-                  setSelectedProfile({
-                    type: "patient",
-                    id: patient.id,
-                  });
+                  void (async () => {
+                    try {
+                      await selectPatient(patient);
+
+                      setSelectedProfile({
+                        type: "patient",
+                        id: patient.id,
+                      });
+                    } catch (error: any) {
+                      Alert.alert(
+                        "Patient konnte nicht geöffnet werden",
+                        error?.message ||
+                          "Bitte versuchen Sie es erneut."
+                      );
+                    }
+                  })();
                 }}
                 style={styles.personMain}
               >
                 <View style={styles.personAvatar}>
-                  <Ionicons
-                    name={
-                      patient.is_self
-                        ? "person-circle"
-                        : "person"
-                    }
-                    size={28}
-                    color={colors.brandPrimary}
-                  />
+                  {patient.photo_data ? (
+                    <Image
+                      source={{ uri: patient.photo_data }}
+                      style={styles.personPhoto}
+                      contentFit="cover"
+                      transition={120}
+                    />
+                  ) : (
+                    <Ionicons
+                      name={
+                        patient.is_self
+                          ? "person-circle"
+                          : "person"
+                      }
+                      size={28}
+                      color={colors.brandPrimary}
+                    />
+                  )}
                 </View>
 
                 <View style={styles.flexOne}>
@@ -945,8 +924,77 @@ export default function Profile() {
           );
         })}
 
+        {activePatient && (
+          <Pressable
+            onPress={() =>
+              router.push("/patient-record" as any)
+            }
+          >
+            <Card style={styles.activePatientCard}>
+              <View style={styles.activePatientIcon}>
+                {activePatient.photo_data ? (
+                  <Image
+                    source={{
+                      uri: activePatient.photo_data,
+                    }}
+                    style={styles.activePatientPhoto}
+                    contentFit="cover"
+                    transition={120}
+                  />
+                ) : (
+                  <Ionicons
+                    name="folder-open-outline"
+                    size={24}
+                    color="#FFFFFF"
+                  />
+                )}
+              </View>
+
+              <View style={styles.flexOne}>
+                <Text style={styles.activePatientLabel}>
+                  Aktive Patientenakte
+                </Text>
+
+                <Text style={styles.activePatientName}>
+                  {activePatient.name}
+                </Text>
+
+                <Text style={styles.activePatientInfo}>
+                  Vollständige Patientenakte öffnen:
+                  Diagnosen, Anamnese, Risiken, Allergien,
+                  Kontakte und Pflegeangaben.
+                </Text>
+              </View>
+
+              {switchingPatient || loadingPatientContacts ? (
+                <Ionicons
+                  name="sync-outline"
+                  size={22}
+                  color="#FFFFFF"
+                />
+              ) : (
+                <Ionicons
+                  name="chevron-forward"
+                  size={26}
+                  color="#FFFFFF"
+                />
+              )}
+            </Card>
+          </Pressable>
+        )}
+
+        {!activePatient && (
+          <Text style={styles.emptyText}>
+            Wählen Sie zuerst einen Patienten aus.
+          </Text>
+        )}
+
         <SectionTitle
-          title="Gespeicherte Angehörige"
+          title={
+            activePatient
+              ? `Angehörige · ${activePatient.name}`
+              : "Angehörige"
+          }
           action={canManageProfiles ? "+ Hinzufügen" : undefined}
           onAction={
             canManageProfiles
@@ -957,7 +1005,7 @@ export default function Profile() {
 
         {relatives.length === 0 && (
           <Text style={styles.emptyText}>
-            Noch kein Angehöriger gespeichert.
+            {activePatient ? "Für diesen Patienten ist noch kein Angehöriger gespeichert." : "Wählen Sie zuerst einen Patienten aus."}
           </Text>
         )}
 
@@ -1056,7 +1104,11 @@ export default function Profile() {
         })}
 
         <SectionTitle
-          title="Gespeicherte Pflegekräfte"
+          title={
+            activePatient
+              ? `Pflegekräfte · ${activePatient.name}`
+              : "Pflegekräfte"
+          }
           action={canManageProfiles ? "+ Hinzufügen" : undefined}
           onAction={
             canManageProfiles
@@ -1067,7 +1119,7 @@ export default function Profile() {
 
         {caregivers.length === 0 && (
           <Text style={styles.emptyText}>
-            Noch keine Pflegekraft gespeichert.
+            {activePatient ? "Für diesen Patienten ist noch keine Pflegekraft gespeichert." : "Wählen Sie zuerst einen Patienten aus."}
           </Text>
         )}
 
@@ -1166,7 +1218,11 @@ export default function Profile() {
         })}
 
         <SectionTitle
-          title="Gespeicherte Hausärzte"
+          title={
+            activePatient
+              ? `Ärzte · ${activePatient.name}`
+              : "Ärzte"
+          }
           action={canManageProfiles ? "+ Hinzufügen" : undefined}
           onAction={
             canManageProfiles
@@ -1177,7 +1233,7 @@ export default function Profile() {
 
         {doctors.length === 0 && (
           <Text style={styles.emptyText}>
-            Noch kein Hausarzt gespeichert.
+            {activePatient ? "Für diesen Patienten ist noch kein Arzt gespeichert." : "Wählen Sie zuerst einen Patienten aus."}
           </Text>
         )}
 
@@ -1537,6 +1593,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  personPhoto: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 24,
+  },
+
   personName: {
     fontSize: font.lg,
     fontWeight: "700",
@@ -1642,6 +1704,53 @@ const styles = StyleSheet.create({
     marginTop: 3,
     fontSize: 11,
     color: colors.onSurfaceTertiary,
+  },
+
+  activePatientCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    marginTop: spacing.md,
+    marginBottom: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.brandPrimary,
+    borderColor: colors.brandPrimary,
+  },
+
+  activePatientIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.16)",
+  },
+
+  activePatientPhoto: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 24,
+  },
+
+  activePatientLabel: {
+    color: "#DCEBFF",
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+  },
+
+  activePatientName: {
+    color: "#FFFFFF",
+    fontSize: font.lg,
+    fontWeight: "800",
+    marginTop: 2,
+  },
+
+  activePatientInfo: {
+    color: "#EAF4FF",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
   },
 
   logout: {
